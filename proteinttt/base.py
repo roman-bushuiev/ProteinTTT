@@ -1,5 +1,4 @@
 import copy
-import yaml
 import time
 import typing as T
 from omegaconf import OmegaConf
@@ -36,6 +35,7 @@ class TTTConfig:
     crop_size: int = 1024  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
     bert801010: bool = True
     score_seq_each_step: bool = False
+    perplexity_early_stopping: T.Optional[float] = None
     eval_each_step: bool = True
     initial_state_reset: bool = True
     automatic_best_state_reset: bool = True
@@ -52,6 +52,11 @@ class TTTConfig:
         conf = OmegaConf.merge(default_conf, file_conf)
         OmegaConf.resolve(conf)
         return cls(**OmegaConf.to_container(conf))
+    
+    def verify(self) -> None:
+        """Verify the configuration."""
+        if self.perplexity_early_stopping is not None and not self.score_seq_each_step:
+            raise ValueError("perplexity_early_stopping can only be used if score_seq_each_step is True")
 
 
 class TTTModule(torch.nn.Module, ABC):
@@ -67,6 +72,7 @@ class TTTModule(torch.nn.Module, ABC):
         self.ttt_cfg = ttt_cfg or TTTConfig()
         if isinstance(ttt_cfg, Path) or isinstance(ttt_cfg, str):
             self.ttt_cfg = TTTConfig.from_yaml(ttt_cfg)
+        self.ttt_cfg.verify()
 
         # Set random seed if specified, otherwise use environment seed
         self.generator = torch.Generator()
@@ -214,6 +220,12 @@ class TTTModule(torch.nn.Module, ABC):
                 self.ttt_logger.info(log_row)
 
                 last_step_time = time.time()
+
+                # Early stopping
+                if self.ttt_cfg.perplexity_early_stopping is not None and perplexity is not None:
+                    if perplexity < self.ttt_cfg.perplexity_early_stopping:
+                        self.ttt_logger.info(f"Early stopping at step {step} with perplexity {perplexity}")
+                        break
 
             # Last step is just for logging
             if step == self.ttt_cfg.steps * self.ttt_cfg.ags:
