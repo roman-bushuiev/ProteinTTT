@@ -1,6 +1,6 @@
 # ProteinTTT
 
-![example](assets/cameo_folding_example.png)
+![Example of TTT applied to protein folding](assets/cameo_folding_example.png)
 
 ProteinTTT is a package that allows you to use test-time training (TTT) to improve the performance of protein language models via on-the-fly per-protein customization.
 
@@ -47,7 +47,7 @@ predict_structure(model, sequence)
 # ================ TTT ================
 ttt_cfg = DEFAULT_ESMFOLD_TTT_CFG
 ttt_cfg.steps = 10  # This is how you can modify config
-model = ESMFoldTTT.ttt_from_pretrained(model, esmfold_config=model.cfg)
+model = ESMFoldTTT.ttt_from_pretrained(model, ttt_cfg=ttt_cfg, esmfold_config=model.cfg)
 model.ttt(sequence)
 # =====================================
 
