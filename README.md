@@ -22,11 +22,12 @@ import esm
 import biotite.structure.io as bsio
 from proteinttt.models.esmfold import ESMFoldTTT, DEFAULT_ESMFOLD_TTT_CFG
 
+# Set your sequence
+sequence = "GIHLGELGLLPSTVLAIGYFENLVNIICESLNMLPKLEVSGKEYKKFKFTIVIPKDLDANIKKRAKIYFKQKSLIEIEIPTSSRNYPIHIQFDENSTDDILHLYDMPTTIGGIDKAIEMFMRKGHIGKTDQQKLLEERELRNFKTTLENLIATDAFAKEMVEVIIEE"
+
 # Load model
 model = esm.pretrained.esmfold_v1()
 model = model.eval().cuda()
-
-sequence = "GIHLGELGLLPSTVLAIGYFENLVNIICESLNMLPKLEVSGKEYKKFKFTIVIPKDLDANIKKRAKIYFKQKSLIEIEIPTSSRNYPIHIQFDENSTDDILHLYDMPTTIGGIDKAIEMFMRKGHIGKTDQQKLLEERELRNFKTTLENLIATDAFAKEMVEVIIEE"
 
 def predict_structure(model, sequence):
     with torch.no_grad():
@@ -43,8 +44,7 @@ predict_structure(model, sequence)
 
 # ================ TTT ================
 ttt_cfg = DEFAULT_ESMFOLD_TTT_CFG
-ttt_cfg.seed = 0  # Trying TTT with several different seeds may enable finding structure with higher pLDDT
-ttt_cfg.steps = 10
+ttt_cfg.steps = 10  # This is how you can modify config
 model = ESMFoldTTT.ttt_from_pretrained(model, esmfold_config=model.cfg)
 model.ttt(sequence)
 # =====================================
@@ -52,7 +52,7 @@ model.ttt(sequence)
 predict_structure(model, sequence)
 # pLDDT: 78.69619
 
-# Rest model to original state (after this model.ttt can be called again on another protein)
+# Reset model to original state (after this model.ttt can be called again on another protein)
 # ================ TTT ================
 model.ttt_reset()
 # =====================================
