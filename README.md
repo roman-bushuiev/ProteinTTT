@@ -1,6 +1,8 @@
 # ProteinTTT
 
-![Example of TTT applied to protein folding](assets/cameo_folding_example.png)
+<p align="center">
+  <img src="assets/cameo_folding_example.png" width="800" alt="Example of TTT applied to protein folding">
+</p>
 
 ProteinTTT is a package that allows you to use test-time training (TTT) to improve the performance of protein language models via on-the-fly per-protein customization.
 
