@@ -33,8 +33,9 @@ class TTTConfig:
     batch_size: int = 2
     mask_ratio: float = 0.15  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
     crop_size: int = 1024  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
-    bert801010: bool = True
-    score_seq_each_step: bool = False
+    bert_leave_prob: float = 0.1
+    bert_replace_prob: float = 0.1
+    score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
     perplexity_early_stopping: T.Optional[float] = None
     eval_each_step: bool = True
     initial_state_reset: bool = True
@@ -55,8 +56,11 @@ class TTTConfig:
     
     def verify(self) -> None:
         """Verify the configuration."""
-        if self.perplexity_early_stopping is not None and not self.score_seq_each_step:
-            raise ValueError("perplexity_early_stopping can only be used if score_seq_each_step is True")
+        if self.score_seq_kind == 'none':
+            self.score_seq_kind = None
+
+        if self.perplexity_early_stopping is not None and self.score_seq_kind is None:
+            raise ValueError("perplexity_early_stopping can only be used if score_seq_kind is not None")
 
 
 class TTTModule(torch.nn.Module, ABC):
@@ -154,7 +158,7 @@ class TTTModule(torch.nn.Module, ABC):
         self.eval()
         for step in range(self.ttt_cfg.steps * self.ttt_cfg.ags + 1):
             # Sample batch
-            # TODO Generalize _ttt_sample_batch to the case when x.shape[0] > 1 to fine-tune on multiple sequences. 
+            # TODO Generalize _ttt_sample_batch to the case when x.shape[0] > 1 to fine-tune on multiple sequences.
             # Just not replicate same sequence but sample different sequences.
             batch_masked, targets, mask, start_indices = self._ttt_sample_batch(x)  # [bs, seq_len]
             kwargs["start_indices"] = start_indices
@@ -170,7 +174,7 @@ class TTTModule(torch.nn.Module, ABC):
 
                 # Score sequence
                 all_log_probs, perplexity = None, None
-                if self.ttt_cfg.score_seq_each_step:
+                if self.ttt_cfg.score_seq_kind is not None:
                     score_seq_start_time = time.time()
                     all_log_probs, perplexity = self._ttt_score_seq(x, *args, **kwargs)
                     score_seq_time = time.time() - score_seq_start_time
@@ -426,11 +430,11 @@ class TTTModule(torch.nn.Module, ABC):
         batch_masked = batch_cropped.clone()
         for i in range(batch_size):
             for idx in torch.nonzero(mask[i], as_tuple=True)[0]:
-                if self.ttt_cfg.bert801010:
+                if self.ttt_cfg.bert_leave_prob + self.ttt_cfg.bert_replace_prob > 0:
                     prob = torch.rand(1, generator=self.generator).item()
-                    if prob < 0.8:  # 80% random chance to mask token
+                    if prob < 1 - self.ttt_cfg.bert_leave_prob - self.ttt_cfg.bert_replace_prob:  # 80% random chance to mask token
                         batch_masked[i, idx] = self._ttt_mask_token(batch_masked[i, idx])
-                    elif prob < 0.9:  # 10% chance to change to random token
+                    elif prob < 1 - self.ttt_cfg.bert_leave_prob:  # 10% chance to change to random token
                         non_special_tokens = self._ttt_get_non_special_tokens()
                         batch_masked[i, idx] = non_special_tokens[torch.randint(0, len(non_special_tokens), (1,), generator=self.generator).item()]
                     else:  # 10% chance to keep current token
@@ -452,39 +456,56 @@ class TTTModule(torch.nn.Module, ABC):
         used for scoring. The function handles special tokens by skipping them for perplexity
         calculation and putting zeros for log-probabilities. The function also handles the case
         when the sequence length is larger than the model context size (crop_size) by using the
-        optimal window selection from ProteinGym.
+        optimal window selection from ProteinGym when masking tokens.
 
         Returns:
             all_log_probs: Log probabilities for each token in the sequence when masked.
             perplexity: Perplexity of the sequence.
         """
-
         # Check input shape
         assert x.ndim == 2 or x.ndim == 3, "Input must be a 2D or 3D tensor"
         assert x.shape[0] == 1, "Input batch size must be 1"
         is_msa = x.ndim == 3
 
+        if self.ttt_cfg.score_seq_kind == 'pseudo_perplexity':
+            all_log_probs, perplexity =  self._ttt_score_seq_pseudo_perplexity(x, is_msa, *args, **kwargs)
+        elif self.ttt_cfg.score_seq_kind == 'gordon2024':
+            all_log_probs, perplexity = self._ttt_score_seq_gordon2024(x, is_msa, *args, **kwargs)
+        else:
+            raise ValueError(f"Invalid score_seq_kind: {self.ttt_cfg.score_seq_kind}")
+
+        return all_log_probs, perplexity
+
+    def _ttt_score_seq_pseudo_perplexity(
+        self,
+        x: torch.Tensor,
+        is_msa: bool = False,
+        *args,
+        **kwargs
+    ) -> tuple[list[torch.Tensor], float]:
         # Get model-specific token sets
         all_tokens = self._ttt_get_all_tokens()
         non_special_tokens = self._ttt_get_non_special_tokens()
 
-        all_log_probs = []  # [seq_len, vocab_size]. Zero rows for special tokens
+        all_log_probs = []  # [seq_len, vocab_size]
         wt_log_probs = []  # [seq_len]. Only for non-special tokens to calculate perplexity
 
         for i in range(x.size(-1)):
+
+            # Check if the token is a special token
+            i_special = False
             token = x[0, 0, i] if is_msa else x[0, i]
             if token not in non_special_tokens:
-                zero_row = torch.zeros(1, len(all_tokens)).to(x.device)
-                all_log_probs.append(zero_row)
-                continue
+                i_special = True
 
+            # Mask current token
             x_masked = x.clone().to(x.device)
-
             if is_msa:
                 x_masked[0, 0, i] = self._ttt_mask_token(x_masked[0, 0, i])
             else:
                 x_masked[0, i] = self._ttt_mask_token(x_masked[0, i])
             
+            # If sequence length is larger than the model context size, use the optimal window selection
             if x.size(-1) > self.ttt_cfg.crop_size:
                 start, end = get_optimal_window(
                     mutation_position_relative=i,
@@ -504,16 +525,62 @@ class TTTModule(torch.nn.Module, ABC):
             else:
                 all_log_probs.append(token_log_probs[:, i-start])  # [1, vocab size]
 
-            if is_msa:
-                wt_log_probs.append(token_log_probs[0, 0, i-start, x[0, 0, i-start]].item())
-            else:
-                wt_log_probs.append(token_log_probs[0, i-start, x[0, i-start]].item())
+            # Skip appending wild-type log-probabilities for special tokens (used later for perplexity calculation)
+            if not i_special:
+                if is_msa:
+                    wt_log_probs.append(token_log_probs[0, 0, i-start, x[0, 0, i-start]].item())
+                else:
+                    wt_log_probs.append(token_log_probs[0, i-start, x[0, i-start]].item())
 
         # Stack log probabilities into a single tensor [seq_len, vocab_size]
         all_log_probs = torch.cat(all_log_probs, dim=0)
 
         # Calculate perplexity from wild-type log-probabilities
         perplexity = torch.exp(-torch.mean(torch.tensor(wt_log_probs))).item()
+
+        return all_log_probs, perplexity
+
+    def _ttt_score_seq_gordon2024(
+        self,
+        x: torch.Tensor,
+        is_msa: bool = False,
+        *args,
+        **kwargs
+    ) -> tuple[list[torch.Tensor], float]:
+        """
+        Score a sequence in a single forward pass using a method from Gordon et al. 2024 
+        (https://openreview.net/forum?id=UvPdpa4LuV).
+
+        Work in progress.
+        """
+        # Get all probabilities in a single forward pass without masking
+        with torch.no_grad():
+            logits = self._ttt_predict_logits(x, *args, **kwargs)  # [bs, seq_len, vocab_size]
+        if is_msa:
+            x = x[:, 0, :]  # [bs=1, seq_len]
+            logits = logits[:, 0, :, :]  # [bs=1, seq_len, vocab_size]
+        all_probs = torch.softmax(logits, dim=-1)  # [bs=1, seq_len, vocab_size]
+
+        # Calculate modified probabilities
+        alpha = self.ttt_cfg.bert_replace_prob
+        beta = self.ttt_cfg.bert_leave_prob
+        eps = 1e-3
+        all_probs = ((alpha + beta) / alpha) * all_probs - beta / alpha
+        all_probs = all_probs.masked_fill(all_probs < eps, eps)  # [bs=1, seq_len, vocab_size]
+
+        # Get log-probabilities
+        all_log_probs = torch.log(all_probs)
+        wt_log_probs = torch.tensor([all_log_probs[0, i, t] for i, t in enumerate(x[0, :])]).to(x.device)
+
+        # Zero out log probabilities for special tokens and find the number of non-special tokens
+        non_special_tokens = self._ttt_get_non_special_tokens()
+        special_token_mask = torch.ones_like(x[0, :], dtype=torch.bool)
+        special_token_mask[torch.isin(x[0, :], torch.tensor(non_special_tokens, device=x.device))] = False
+        wt_log_probs = wt_log_probs.masked_fill(special_token_mask, 0)
+        num_non_special_tokens = torch.sum(~special_token_mask).item()
+
+        # Calculate perplexity
+        perplexity = torch.exp(-torch.mean(wt_log_probs) / num_non_special_tokens).item()
 
         return all_log_probs, perplexity
 
