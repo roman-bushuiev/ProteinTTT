@@ -36,6 +36,7 @@ class TTTConfig:
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
+    score_seq_steps_list: T.Optional[list[int] | int] = None  # If None, use all steps
     perplexity_early_stopping: T.Optional[float] = None
     eval_each_step: bool = True
     initial_state_reset: bool = True
@@ -58,6 +59,9 @@ class TTTConfig:
         """Verify the configuration."""
         if self.score_seq_kind == 'none':
             self.score_seq_kind = None
+
+        if isinstance(self.score_seq_steps_list, int):
+            self.score_seq_steps_list = [self.score_seq_steps_list]
 
         if self.perplexity_early_stopping is not None and self.score_seq_kind is None:
             raise ValueError("perplexity_early_stopping can only be used if score_seq_kind is not None")
@@ -174,12 +178,21 @@ class TTTModule(torch.nn.Module, ABC):
 
                 # Score sequence
                 all_log_probs, perplexity = None, None
-                if self.ttt_cfg.score_seq_kind is not None:
+                should_score = (
+                    self.ttt_cfg.score_seq_kind is not None and (
+                        self.ttt_cfg.score_seq_steps_list is None or
+                        (step // self.ttt_cfg.ags) in self.ttt_cfg.score_seq_steps_list
+                    )
+                )
+                if should_score:
                     score_seq_start_time = time.time()
                     all_log_probs, perplexity = self._ttt_score_seq(x, *args, **kwargs)
                     score_seq_time = time.time() - score_seq_start_time
                     all_log_probs = [x.detach().cpu() for x in all_log_probs]
                     ttt_step_data[step // self.ttt_cfg.ags]['all_log_probs'] = all_log_probs
+                else:
+                    all_log_probs, perplexity = None, None
+                    score_seq_time = 0.0
             
                 # Evaluate TTT step
                 if self.ttt_cfg.eval_each_step:
