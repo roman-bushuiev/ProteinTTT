@@ -463,14 +463,13 @@ class TTTModule(torch.nn.Module, ABC):
             perplexity: Perplexity of the sequence.
         """
         # Check input shape
-        assert x.ndim == 2 or x.ndim == 3, "Input must be a 2D or 3D tensor"
+        assert x.ndim == 2, "Input must be a 2D tensor"
         assert x.shape[0] == 1, "Input batch size must be 1"
-        is_msa = x.ndim == 3
 
         if self.ttt_cfg.score_seq_kind == 'pseudo_perplexity':
-            all_log_probs, perplexity =  self._ttt_score_seq_pseudo_perplexity(x, is_msa, *args, **kwargs)
+            all_log_probs, perplexity =  self._ttt_score_seq_pseudo_perplexity(x, *args, **kwargs)
         elif self.ttt_cfg.score_seq_kind == 'gordon2024':
-            all_log_probs, perplexity = self._ttt_score_seq_gordon2024(x, is_msa, *args, **kwargs)
+            all_log_probs, perplexity = self._ttt_score_seq_gordon2024(x, *args, **kwargs)
         else:
             raise ValueError(f"Invalid score_seq_kind: {self.ttt_cfg.score_seq_kind}")
 
@@ -479,7 +478,6 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_pseudo_perplexity(
         self,
         x: torch.Tensor,
-        is_msa: bool = False,
         *args,
         **kwargs
     ) -> tuple[list[torch.Tensor], float]:
@@ -494,16 +492,13 @@ class TTTModule(torch.nn.Module, ABC):
 
             # Check if the token is a special token
             i_special = False
-            token = x[0, 0, i] if is_msa else x[0, i]
+            token = x[0, i]
             if token not in non_special_tokens:
                 i_special = True
 
             # Mask current token
             x_masked = x.clone().to(x.device)
-            if is_msa:
-                x_masked[0, 0, i] = self._ttt_mask_token(x_masked[0, 0, i])
-            else:
-                x_masked[0, i] = self._ttt_mask_token(x_masked[0, i])
+            x_masked[0, i] = self._ttt_mask_token(x_masked[0, i])
             
             # If sequence length is larger than the model context size, use the optimal window selection
             if x.size(-1) > self.ttt_cfg.crop_size:
@@ -520,17 +515,11 @@ class TTTModule(torch.nn.Module, ABC):
             with torch.no_grad():
                 logits = self._ttt_predict_logits(x_masked, *args, **kwargs)
                 token_log_probs = torch.log_softmax(logits, dim=-1)
-            if is_msa:
-                all_log_probs.append(token_log_probs[:, 0, i-start])  # [1, vocab size]
-            else:
                 all_log_probs.append(token_log_probs[:, i-start])  # [1, vocab size]
 
             # Skip appending wild-type log-probabilities for special tokens (used later for perplexity calculation)
             if not i_special:
-                if is_msa:
-                    wt_log_probs.append(token_log_probs[0, 0, i-start, x[0, 0, i-start]].item())
-                else:
-                    wt_log_probs.append(token_log_probs[0, i-start, x[0, i-start]].item())
+                wt_log_probs.append(token_log_probs[0, i-start, x[0, i-start]].item())
 
         # Stack log probabilities into a single tensor [seq_len, vocab_size]
         all_log_probs = torch.cat(all_log_probs, dim=0)
@@ -543,7 +532,6 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_gordon2024(
         self,
         x: torch.Tensor,
-        is_msa: bool = False,
         *args,
         **kwargs
     ) -> tuple[list[torch.Tensor], float]:
@@ -555,10 +543,7 @@ class TTTModule(torch.nn.Module, ABC):
         """
         # Get all probabilities in a single forward pass without masking
         with torch.no_grad():
-            logits = self._ttt_predict_logits(x, *args, **kwargs)  # [bs, seq_len, vocab_size]
-        if is_msa:
-            x = x[:, 0, :]  # [bs=1, seq_len]
-            logits = logits[:, 0, :, :]  # [bs=1, seq_len, vocab_size]
+            logits = self._ttt_predict_logits(x, *args, **kwargs)  # [bs=1, seq_len, vocab_size]
         all_probs = torch.softmax(logits, dim=-1)  # [bs=1, seq_len, vocab_size]
 
         # Calculate modified probabilities
