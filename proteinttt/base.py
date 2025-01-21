@@ -88,9 +88,9 @@ class TTTModule(torch.nn.Module, ABC):
         self.ttt_cfg.verify()
 
         # Set random seed if specified, otherwise use environment seed
-        self.generator = torch.Generator()
+        self.ttt_generator = torch.Generator()
         if self.ttt_cfg.seed is not None:
-            self.generator.manual_seed(self.ttt_cfg.seed)
+            self.ttt_generator.manual_seed(self.ttt_cfg.seed)
 
         # Init logger
         self.ttt_logger = setup_logger(
@@ -439,25 +439,25 @@ class TTTModule(torch.nn.Module, ABC):
             start_indices = torch.zeros(batch_size, dtype=torch.long)
             crop_size = seq_len
         else:
-            start_indices = torch.randint(0, seq_len - crop_size + 1, (batch_size,), generator=self.generator).to(torch.long)
+            start_indices = torch.randint(0, seq_len - crop_size + 1, (batch_size,), generator=self.ttt_generator).to(torch.long)
         batch_cropped = torch.stack([x_expanded[i, start:start + crop_size] for i, start in enumerate(start_indices)])
 
         # Apply BERT masking
         mask = torch.zeros((batch_size, crop_size), dtype=torch.bool)
         for i in range(batch_size):
-            mask_indices = torch.randperm(crop_size, generator=self.generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]
+            mask_indices = torch.randperm(crop_size, generator=self.ttt_generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]
             mask[i, mask_indices] = True
 
         batch_masked = batch_cropped.clone()
         for i in range(batch_size):
             for idx in torch.nonzero(mask[i], as_tuple=True)[0]:
                 if self.ttt_cfg.bert_leave_prob + self.ttt_cfg.bert_replace_prob > 0:
-                    prob = torch.rand(1, generator=self.generator).item()
+                    prob = torch.rand(1, generator=self.ttt_generator).item()
                     if prob < 1 - self.ttt_cfg.bert_leave_prob - self.ttt_cfg.bert_replace_prob:  # 80% random chance to mask token
                         batch_masked[i, idx] = self._ttt_mask_token(batch_masked[i, idx])
                     elif prob < 1 - self.ttt_cfg.bert_leave_prob:  # 10% chance to change to random token
                         non_special_tokens = self._ttt_get_non_special_tokens()
-                        batch_masked[i, idx] = non_special_tokens[torch.randint(0, len(non_special_tokens), (1,), generator=self.generator).item()]
+                        batch_masked[i, idx] = non_special_tokens[torch.randint(0, len(non_special_tokens), (1,), generator=self.ttt_generator).item()]
                     else:  # 10% chance to keep current token
                         pass
                 else:
