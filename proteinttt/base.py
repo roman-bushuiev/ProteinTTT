@@ -36,7 +36,7 @@ class TTTConfig:
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
-    score_seq_steps_list: T.Optional[list[int] | int] = None  # If None, use all steps
+    score_seq_steps_list: T.Any = None  # T.Optional[int | list[int]]. None to use all steps
     perplexity_early_stopping: T.Optional[float] = None
     eval_each_step: bool = True
     initial_state_reset: bool = True
@@ -60,8 +60,13 @@ class TTTConfig:
         if self.score_seq_kind == 'none':
             self.score_seq_kind = None
 
-        if isinstance(self.score_seq_steps_list, int):
-            self.score_seq_steps_list = [self.score_seq_steps_list]
+        if self.score_seq_steps_list is not None:
+            if isinstance(self.score_seq_steps_list, int):
+                self.score_seq_steps_list = [self.score_seq_steps_list]
+            elif not isinstance(self.score_seq_steps_list, list):
+                raise ValueError("score_seq_steps_list must be None, an integer, or a list of integers")
+            if not all(isinstance(x, int) for x in self.score_seq_steps_list):
+                raise ValueError("All elements in score_seq_steps_list must be integers")
 
         if self.perplexity_early_stopping is not None and self.score_seq_kind is None:
             raise ValueError("perplexity_early_stopping can only be used if score_seq_kind is not None")
