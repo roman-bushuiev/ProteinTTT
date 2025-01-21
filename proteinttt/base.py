@@ -131,13 +131,12 @@ class TTTModule(torch.nn.Module, ABC):
         return instance
 
     @preserve_model_state
-    def ttt(self, seq: T.Optional[str] = None, msa_pth: T.Optional[Path] = None, *args, **kwargs) -> dict[str, T.Any]:
+    def ttt(self, seq: T.Optional[str] = None, msa_pth: T.Optional[Path] = None, **kwargs) -> dict[str, T.Any]:
         """
         Run TTT loop. After calling this method, the model will be customized to the input protein
         via test-time training (TTT).
 
         Args:
-            *args: Positional arguments to forward of the original model
             **kwargs: Keyword arguments to forward of the original model
 
         Returns:
@@ -146,12 +145,12 @@ class TTTModule(torch.nn.Module, ABC):
         
         # Tokenize input sequence or input MSA
         if msa_pth is None:            
-            x = self._ttt_tokenize(seq, *args, **kwargs)  # [bs=1, seq_len]
+            x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
         else:
             # Read MSA by replacing all insertions with padding tokens, then tokenize each sequence, and stack them
             x = []
             for seq in read_msa(msa_pth, replace_inserstions=self._ttt_token_to_str(self._ttt_get_padding_token())):
-                x.append(self._ttt_tokenize(seq, *args, **kwargs).squeeze(0))
+                x.append(self._ttt_tokenize(seq, **kwargs).squeeze(0))
             x = torch.stack(x)  # [msa_len, seq_len]
         
         # Get trainable parameters and optimizer
@@ -199,7 +198,7 @@ class TTTModule(torch.nn.Module, ABC):
                 )
                 if should_score:
                     score_seq_start_time = time.time()
-                    all_log_probs, perplexity = self._ttt_score_seq(x, *args, **kwargs)
+                    all_log_probs, perplexity = self._ttt_score_seq(x, **kwargs)
                     score_seq_time = time.time() - score_seq_start_time
                     all_log_probs = [x.detach().cpu() for x in all_log_probs]
                     ttt_step_data[step // self.ttt_cfg.ags]['all_log_probs'] = all_log_probs
@@ -215,8 +214,9 @@ class TTTModule(torch.nn.Module, ABC):
                         loss=loss.item() if loss is not None else None,
                         perplexity=perplexity,
                         all_log_probs=all_log_probs,
-                        ttt_args=args,
-                        ttt_kwargs=kwargs
+                        seq=seq,
+                        msa_pth=msa_pth,
+                        **kwargs
                     )
                     eval_step_time = time.time() - eval_step_start_time
 
@@ -263,7 +263,7 @@ class TTTModule(torch.nn.Module, ABC):
 
             # Forward pass
             self.train()
-            logits = self._ttt_predict_logits(batch_masked, start_indices, *args, **kwargs)
+            logits = self._ttt_predict_logits(batch_masked, start_indices, **kwargs)
             bs, seq_len, vocab_size = logits.shape
             assert targets.shape == (bs, seq_len), "Target shape does not match logits shape."
             
@@ -307,7 +307,7 @@ class TTTModule(torch.nn.Module, ABC):
         self._ttt_set_state(self._ttt_initial_state)
 
     @abstractmethod
-    def _ttt_tokenize(self, *args, **kwargs) -> torch.Tensor:
+    def _ttt_tokenize(self, seq: T.Optional[str] = None, **kwargs) -> torch.Tensor:
         raise NotImplementedError("Subclass must implement _ttt_tokenize method")
 
     @abstractmethod
@@ -453,13 +453,13 @@ class TTTModule(torch.nn.Module, ABC):
             x_expanded = x.expand(batch_size, -1)
         elif x.shape[0] >= batch_size:
             # If multiple sequences available, randomly sample batch_size sequences
-            indices = torch.randint(0, x.shape[0], (batch_size,), generator=self.generator)
+            indices = torch.randint(0, x.shape[0], (batch_size,), generator=self.ttt_generator)
             x_expanded = x[indices]
         else:  # 1 < x.shape[0] < batch_size
             # If fewer sequences than batch_size, replicate sequences up to batch_size
             num_repeats = batch_size // x.shape[0] + 1
             x_repeated = x.repeat(num_repeats, 1)
-            indices = torch.randperm(x_repeated.shape[0], generator=self.generator)[:batch_size]
+            indices = torch.randperm(x_repeated.shape[0], generator=self.ttt_generator)[:batch_size]
             x_expanded = x_repeated[indices]
 
         # Sample crop_size-tokens cropped subsequences
@@ -498,7 +498,7 @@ class TTTModule(torch.nn.Module, ABC):
 
         return batch_masked, targets, mask, start_indices
 
-    def _ttt_score_seq(self, x: torch.Tensor, *args, **kwargs) -> tuple[list[torch.Tensor], float]:
+    def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
         """
         Score a sequence using TTT. 
 
@@ -517,9 +517,9 @@ class TTTModule(torch.nn.Module, ABC):
         assert x.shape[0] == 1, "Input batch size must be 1"
 
         if self.ttt_cfg.score_seq_kind == 'pseudo_perplexity':
-            all_log_probs, perplexity =  self._ttt_score_seq_pseudo_perplexity(x, *args, **kwargs)
+            all_log_probs, perplexity =  self._ttt_score_seq_pseudo_perplexity(x, **kwargs)
         elif self.ttt_cfg.score_seq_kind == 'gordon2024':
-            all_log_probs, perplexity = self._ttt_score_seq_gordon2024(x, *args, **kwargs)
+            all_log_probs, perplexity = self._ttt_score_seq_gordon2024(x, **kwargs)
         else:
             raise ValueError(f"Invalid score_seq_kind: {self.ttt_cfg.score_seq_kind}")
 
@@ -528,7 +528,6 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_pseudo_perplexity(
         self,
         x: torch.Tensor,
-        *args,
         **kwargs
     ) -> tuple[list[torch.Tensor], float]:
         # Get model-specific token sets
@@ -564,7 +563,7 @@ class TTTModule(torch.nn.Module, ABC):
             # Predict logs for each token (amino acid) at the position
             with torch.no_grad():
                 start_indices = torch.tensor([start], device=x.device)
-                logits = self._ttt_predict_logits(x_masked, start_indices, *args, **kwargs)
+                logits = self._ttt_predict_logits(x_masked, start_indices, **kwargs)
                 token_log_probs = torch.log_softmax(logits, dim=-1)
                 all_log_probs.append(token_log_probs[:, i-start])  # [1, vocab size]
 
@@ -583,7 +582,6 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_gordon2024(
         self,
         x: torch.Tensor,
-        *args,
         **kwargs
     ) -> tuple[list[torch.Tensor], float]:
         """
@@ -594,7 +592,7 @@ class TTTModule(torch.nn.Module, ABC):
         """
         # Get all probabilities in a single forward pass without masking
         with torch.no_grad():
-            logits = self._ttt_predict_logits(x, *args, **kwargs)  # [bs=1, seq_len, vocab_size]
+            logits = self._ttt_predict_logits(x, **kwargs)  # [bs=1, seq_len, vocab_size]
         all_probs = torch.softmax(logits, dim=-1)  # [bs=1, seq_len, vocab_size]
 
         # Calculate modified probabilities
@@ -626,7 +624,8 @@ class TTTModule(torch.nn.Module, ABC):
         loss: torch.Tensor,
         perplexity: float,
         all_log_probs: torch.Tensor,
-        ttt_args: T.Tuple,
-        ttt_kwargs: T.Dict
+        seq: str,
+        msa_pth: Path,
+        **kwargs
     ) -> tuple[dict, dict, T.Optional[float]]:
         return {}, {}, None

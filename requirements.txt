@@ -2,3 +2,4 @@
 lora-diffusion @ git+https://github.com/cloneofsimo/lora.git
 omegaconf
 pandas
+biopython

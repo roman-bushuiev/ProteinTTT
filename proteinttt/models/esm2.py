@@ -30,7 +30,7 @@ class ESM2TTT(TTTModule, ESM2):
         self.ttt_alphabet = esm.Alphabet.from_architecture("ESM-1b")  # ESM2 uses ESM-1b alphabet
         self.ttt_batch_converter = self.ttt_alphabet.get_batch_converter()
 
-    def _ttt_tokenize(self, seq: str, *args, **kwargs):
+    def _ttt_tokenize(self, seq: str, **kwargs):
         batch_labels, batch_strs, batch_tokens = self.ttt_batch_converter([(None, seq)])
         return batch_tokens
 
@@ -43,7 +43,7 @@ class ESM2TTT(TTTModule, ESM2):
     def _ttt_get_padding_token(self) -> int:
         return self.ttt_alphabet.padding_idx
 
-    def _token_to_str(self, token: int) -> str:
+    def _ttt_token_to_str(self, token: int) -> str:
         return self.ttt_alphabet.all_toks[token]
 
     def _ttt_get_all_tokens(self) -> list[int]:
@@ -52,5 +52,5 @@ class ESM2TTT(TTTModule, ESM2):
     def _ttt_get_non_special_tokens(self) -> list[int]:
         return [self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.standard_toks]
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, *args, **kwargs) -> torch.Tensor:
+    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs) -> torch.Tensor:
         return self(batch)["logits"]  # [bs, seq_len] -> [bs, seq_len, vocab_size]

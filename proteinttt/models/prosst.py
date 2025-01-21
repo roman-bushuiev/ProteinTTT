@@ -34,10 +34,19 @@ class ProSSTTTT(TTTModule, MODEL_CLASS):
             if t not in self.ttt_tokenizer.all_special_ids
         ]
 
-    def _ttt_tokenize(self, *args, **kwargs) -> torch.Tensor:
-        return kwargs["input_ids"] if "input_ids" in kwargs else args[0]
+    def _ttt_get_padding_token(self) -> int:
+        return self.ttt_tokenizer.pad_token_id
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, *args, **kwargs) -> torch.Tensor:
+    def _ttt_token_to_str(self, token: int) -> str:
+        return self.ttt_tokenizer.decode([token])
+
+    def _ttt_tokenize(self, seq: str, **kwargs) -> torch.Tensor:
+        assert "input_ids" in kwargs, "input_ids must be provided"
+        x = kwargs["input_ids"]
+        assert isinstance(x, torch.Tensor), "input_ids must be a tensor"
+        return x  # [bs, seq_len]
+
+    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs) -> torch.Tensor:
         # Copy structure sequence to all sequences in the batch and apply consistent cropping
         ss_input_ids=kwargs["ss_input_ids"]
         ss_input_ids = ss_input_ids[0].expand(batch.shape[0], -1)  # [1,seq_len] -> [bs, seq_len]
