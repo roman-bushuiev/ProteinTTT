@@ -13,6 +13,7 @@ from lora_diffusion.lora import inject_trainable_lora
 
 from proteinttt.utils.io import setup_logger
 from proteinttt.utils.torch import preserve_model_state, get_optimal_window
+from proteinttt.utils.msa import read_msa
 
 
 @dataclass
@@ -130,7 +131,7 @@ class TTTModule(torch.nn.Module, ABC):
         return instance
 
     @preserve_model_state
-    def ttt(self, *args, **kwargs) -> dict[str, T.Any]:
+    def ttt(self, seq: T.Optional[str] = None, msa_pth: T.Optional[Path] = None, *args, **kwargs) -> dict[str, T.Any]:
         """
         Run TTT loop. After calling this method, the model will be customized to the input protein
         via test-time training (TTT).
@@ -142,9 +143,17 @@ class TTTModule(torch.nn.Module, ABC):
         Returns:
             A dictionary containing the results of the TTT loop.
         """
-        # Tokenize input sequence
-        x = self._ttt_tokenize(*args, **kwargs)  # [bs=1, seq_len]
-
+        
+        # Tokenize input sequence or input MSA
+        if msa_pth is None:            
+            x = self._ttt_tokenize(seq, *args, **kwargs)  # [bs=1, seq_len]
+        else:
+            # Read MSA by replacing all insertions with padding tokens, then tokenize each sequence, and stack them
+            x = []
+            for seq in read_msa(msa_pth, replace_inserstions=self._ttt_token_to_str(self._ttt_get_padding_token())):
+                x.append(self._ttt_tokenize(seq, *args, **kwargs).squeeze(0))
+            x = torch.stack(x)  # [msa_len, seq_len]
+        
         # Get trainable parameters and optimizer
         parameters = self._ttt_get_parameters()
         optimizer = self._ttt_get_optimizer(parameters)
@@ -297,11 +306,10 @@ class TTTModule(torch.nn.Module, ABC):
             raise ValueError("Initial state is not set. Make sure initial_state_reset=True in TTTConfig.")
         self._ttt_set_state(self._ttt_initial_state)
 
+    @abstractmethod
     def _ttt_tokenize(self, *args, **kwargs) -> torch.Tensor:
-        x = args[0]
-        assert isinstance(x, torch.Tensor), "Input must be a tensor"
-        return x
-    
+        raise NotImplementedError("Subclass must implement _ttt_tokenize method")
+
     @abstractmethod
     def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None) -> torch.Tensor:
         """
@@ -322,6 +330,14 @@ class TTTModule(torch.nn.Module, ABC):
     @abstractmethod
     def _ttt_get_non_special_tokens(self) -> torch.Tensor:
         raise NotImplementedError("Subclass must implement _ttt_get_non_special_tokens method")
+
+    @abstractmethod
+    def _ttt_get_padding_token(self) -> int:
+        raise NotImplementedError("Subclass must implement _ttt_get_padding_token method")
+
+    @abstractmethod
+    def _ttt_token_to_str(self, token: int) -> str:
+        raise NotImplementedError("Subclass must implement _ttt_token_to_str method")
 
     def _ttt_get_trainable_modules(self) -> list[torch.nn.Module]:
         """
@@ -431,8 +447,20 @@ class TTTModule(torch.nn.Module, ABC):
         batch_size = self.ttt_cfg.batch_size
         crop_size = self.ttt_cfg.crop_size
 
-        # Create batch_size copies of the sequence
-        x_expanded = x.expand(batch_size, -1)
+        # Create batch of unmasked and uncropped sequences
+        if x.shape[0] == 1:
+            # If only one sequence, replicate it batch_size times
+            x_expanded = x.expand(batch_size, -1)
+        elif x.shape[0] >= batch_size:
+            # If multiple sequences available, randomly sample batch_size sequences
+            indices = torch.randint(0, x.shape[0], (batch_size,), generator=self.generator)
+            x_expanded = x[indices]
+        else:  # 1 < x.shape[0] < batch_size
+            # If fewer sequences than batch_size, replicate sequences up to batch_size
+            num_repeats = batch_size // x.shape[0] + 1
+            x_repeated = x.repeat(num_repeats, 1)
+            indices = torch.randperm(x_repeated.shape[0], generator=self.generator)[:batch_size]
+            x_expanded = x_repeated[indices]
 
         # Sample crop_size-tokens cropped subsequences
         if seq_len < crop_size:
@@ -443,6 +471,7 @@ class TTTModule(torch.nn.Module, ABC):
         batch_cropped = torch.stack([x_expanded[i, start:start + crop_size] for i, start in enumerate(start_indices)])
 
         # Apply BERT masking
+        # TODO: do not mask special tokens
         mask = torch.zeros((batch_size, crop_size), dtype=torch.bool)
         for i in range(batch_size):
             mask_indices = torch.randperm(crop_size, generator=self.ttt_generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]

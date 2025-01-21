@@ -28,6 +28,11 @@ class ESM2TTT(TTTModule, ESM2):
         ESM2.__init__(self, **kwargs)
         TTTModule.__init__(self, ttt_cfg=ttt_cfg)
         self.ttt_alphabet = esm.Alphabet.from_architecture("ESM-1b")  # ESM2 uses ESM-1b alphabet
+        self.ttt_batch_converter = self.ttt_alphabet.get_batch_converter()
+
+    def _ttt_tokenize(self, seq: str, *args, **kwargs):
+        batch_labels, batch_strs, batch_tokens = self.ttt_batch_converter([(None, seq)])
+        return batch_tokens
 
     def _ttt_get_frozen_modules(self) -> list[torch.nn.Module]:
         return [self.embed_tokens]
@@ -35,6 +40,12 @@ class ESM2TTT(TTTModule, ESM2):
     def _ttt_mask_token(self, token: int) -> int:
         return self.ttt_alphabet.mask_idx
     
+    def _ttt_get_padding_token(self) -> int:
+        return self.ttt_alphabet.padding_idx
+
+    def _token_to_str(self, token: int) -> str:
+        return self.ttt_alphabet.all_toks[token]
+
     def _ttt_get_all_tokens(self) -> list[int]:
         return [self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.all_toks]
     
