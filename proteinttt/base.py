@@ -131,7 +131,7 @@ class TTTModule(torch.nn.Module, ABC):
         else:
             # Read MSA by replacing all insertions with padding tokens, then tokenize each sequence, and stack them
             x = []
-            for seq in read_msa(msa_pth, replace_inserstions=self._token_to_str(self._ttt_get_padding_token())):
+            for seq in read_msa(msa_pth, replace_inserstions=self._ttt_token_to_str(self._ttt_get_padding_token())):
                 x.append(self._ttt_tokenize(seq, *args, **kwargs).squeeze(0))
             x = torch.stack(x)  # [msa_len, seq_len]
         
@@ -294,8 +294,8 @@ class TTTModule(torch.nn.Module, ABC):
         raise NotImplementedError("Subclass must implement _ttt_get_padding_token method")
 
     @abstractmethod
-    def _token_to_str(self, token: int) -> str:
-        raise NotImplementedError("Subclass must implement _token_to_str method")
+    def _ttt_token_to_str(self, token: int) -> str:
+        raise NotImplementedError("Subclass must implement _ttt_token_to_str method")
 
     def _ttt_get_trainable_modules(self) -> list[torch.nn.Module]:
         """
