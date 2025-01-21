@@ -36,6 +36,7 @@ class TTTConfig:
     crop_size: int = 1024  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
+    loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', TODO]
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
     score_seq_steps_list: T.Any = None  # T.Optional[int | list[int]]. None to use all steps
     perplexity_early_stopping: T.Optional[float] = None
@@ -264,25 +265,13 @@ class TTTModule(torch.nn.Module, ABC):
             # Forward pass
             self.train()
             logits = self._ttt_predict_logits(batch_masked, start_indices, **kwargs)
-            bs, seq_len, vocab_size = logits.shape
-            assert targets.shape == (bs, seq_len), "Target shape does not match logits shape."
             
-            # TODO Separate loss calculation into a separate method
-            # Flatten logits and targets
-            logits_reshaped = logits.view(-1, vocab_size)  # [bs*seq_len, vocab_size]
-            targets_reshaped = targets.view(-1)  # [bs*seq_len]
-            mask_reshaped = mask.view(-1).bool()  # [bs*seq_len]
-
-            # Calculate cross-entropy loss over masked tokens
-            loss = torch.nn.functional.cross_entropy(
-                logits_reshaped[mask_reshaped],
-                targets_reshaped[mask_reshaped],
-                reduction='none'
-            )
-            # Reshape loss to [bs, masked_tokens], average over each sequence (dim=1), then average over batch
-            loss = loss.view(bs, mask.sum(dim=1)[0]).mean(dim=1).mean()
-            # loss = loss.view(bs, torch.div(mask_reshaped.sum(), bs, rounding_mode='floor')).mean(dim=1).mean() / self.ttt_cfg.ags
-            # loss = F.cross_entropy(logits_reshaped, targets_reshaped)
+            # Calculate loss
+            assert logits.shape[:-1] == targets.shape, "Target shape does not match logits shape."
+            if self.ttt_cfg.loss_kind == 'cross_entropy':
+                loss = self._ttt_cross_entropy_loss(logits, targets, mask)
+            else:
+                raise ValueError(f"Loss kind {self.ttt_cfg.loss_kind} not supported")
 
             # Backward pass
             loss.backward()
@@ -470,12 +459,19 @@ class TTTModule(torch.nn.Module, ABC):
             start_indices = torch.randint(0, seq_len - crop_size + 1, (batch_size,), generator=self.ttt_generator).to(torch.long)
         batch_cropped = torch.stack([x_expanded[i, start:start + crop_size] for i, start in enumerate(start_indices)])
 
-        # Apply BERT masking
-        # TODO: do not mask special tokens
+        # Get non-special tokens
+        non_special_tokens = self._ttt_get_non_special_tokens()
+        non_special_tokens_set = set(non_special_tokens)
+
+        # Apply BERT masking only to non-special tokens
         mask = torch.zeros((batch_size, crop_size), dtype=torch.bool)
         for i in range(batch_size):
-            mask_indices = torch.randperm(crop_size, generator=self.ttt_generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]
-            mask[i, mask_indices] = True
+            non_special_positions = [j for j in range(crop_size) if batch_cropped[i,j].item() in non_special_tokens_set]
+            if len(non_special_positions) > 0:
+                num_to_mask = int(len(non_special_positions) * self.ttt_cfg.mask_ratio)
+                if num_to_mask > 0:
+                    positions_to_mask = torch.tensor(non_special_positions)[torch.randperm(len(non_special_positions), generator=self.ttt_generator)[:num_to_mask]]
+                    mask[i, positions_to_mask] = True
 
         batch_masked = batch_cropped.clone()
         for i in range(batch_size):
@@ -485,7 +481,6 @@ class TTTModule(torch.nn.Module, ABC):
                     if prob < 1 - self.ttt_cfg.bert_leave_prob - self.ttt_cfg.bert_replace_prob:  # 80% random chance to mask token
                         batch_masked[i, idx] = self._ttt_mask_token(batch_masked[i, idx])
                     elif prob < 1 - self.ttt_cfg.bert_leave_prob:  # 10% chance to change to random token
-                        non_special_tokens = self._ttt_get_non_special_tokens()
                         batch_masked[i, idx] = non_special_tokens[torch.randint(0, len(non_special_tokens), (1,), generator=self.ttt_generator).item()]
                     else:  # 10% chance to keep current token
                         pass
@@ -497,6 +492,30 @@ class TTTModule(torch.nn.Module, ABC):
         targets = batch_cropped
 
         return batch_masked, targets, mask, start_indices
+
+    def _ttt_cross_entropy_loss(self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        mask: torch.Tensor
+    ) -> torch.Tensor:
+        assert logits.ndim == 3, "Logits must be a 3D tensor [bs, seq_len, vocab_size]"
+        bs, seq_len, vocab_size = logits.shape
+
+        # Flatten logits and targets
+        logits_reshaped = logits.view(-1, vocab_size)  # [bs*seq_len, vocab_size]
+        targets_reshaped = targets.view(-1)  # [bs*seq_len]
+        mask_reshaped = mask.view(-1).bool()  # [bs*seq_len]
+
+        # Calculate cross-entropy loss over masked tokens
+        loss = torch.nn.functional.cross_entropy(
+            logits_reshaped[mask_reshaped],
+            targets_reshaped[mask_reshaped],
+            reduction='none'
+        )
+
+        # Reshape loss to [bs, masked_tokens], average over each sequence (dim=1), then average over batch
+        loss = loss.view(bs, mask.sum(dim=1)[0]).mean(dim=1).mean()
+        return loss
 
     def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
         """
