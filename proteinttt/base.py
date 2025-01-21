@@ -425,8 +425,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     def _ttt_sample_batch(
         self,
-        x: torch.Tensor,
-        x_weights: T.Optional[torch.Tensor] = None
+        x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         _, seq_len = x.shape
         batch_size = self.ttt_cfg.batch_size
@@ -446,11 +445,7 @@ class TTTModule(torch.nn.Module, ABC):
         # Apply BERT masking
         mask = torch.zeros((batch_size, crop_size), dtype=torch.bool)
         for i in range(batch_size):
-            if x_weights is not None:
-                cropped_weights = x_weights[start_indices[i]:start_indices[i] + crop_size]
-                mask_indices = torch.multinomial(cropped_weights, int(crop_size * self.ttt_cfg.mask_ratio), replacement=False, generator=self.generator)
-            else:
-                mask_indices = torch.randperm(crop_size, generator=self.generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]
+            mask_indices = torch.randperm(crop_size, generator=self.generator)[:int(crop_size * self.ttt_cfg.mask_ratio)]
             mask[i, mask_indices] = True
 
         batch_masked = batch_cropped.clone()
