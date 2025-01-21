@@ -170,7 +170,6 @@ class TTTModule(torch.nn.Module, ABC):
             # TODO Generalize _ttt_sample_batch to the case when x.shape[0] > 1 to fine-tune on multiple sequences.
             # Just not replicate same sequence but sample different sequences.
             batch_masked, targets, mask, start_indices = self._ttt_sample_batch(x)  # [bs, seq_len]
-            kwargs["start_indices"] = start_indices
 
             # Score sequence with the updated model (predict log probs for each position) and evaluate TTT step
             # We make prediction before training in each iteration to store predictions before TTT (epoch 0)
@@ -255,7 +254,7 @@ class TTTModule(torch.nn.Module, ABC):
 
             # Forward pass
             self.train()
-            logits = self._ttt_predict_logits(batch_masked, *args, **kwargs)
+            logits = self._ttt_predict_logits(batch_masked, start_indices, *args, **kwargs)
             bs, seq_len, vocab_size = logits.shape
             assert targets.shape == (bs, seq_len), "Target shape does not match logits shape."
             
@@ -304,7 +303,16 @@ class TTTModule(torch.nn.Module, ABC):
         return x
     
     @abstractmethod
-    def _ttt_predict_logits(self, batch: torch.Tensor) -> torch.Tensor:
+    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None) -> torch.Tensor:
+        """
+        Predict logits for a batch of sequences.
+
+        Args:
+            batch: Batch of sequences to predict logits for.
+            start_indices: Starting indices of sequences in the batch with respect to the 
+                original input sequence used for TTT customization. This argument may be needed
+                as a result of cropping.
+        """
         raise NotImplementedError("Subclass must implement _ttt_predict_logits method")
     
     @abstractmethod
@@ -531,7 +539,8 @@ class TTTModule(torch.nn.Module, ABC):
 
             # Predict logs for each token (amino acid) at the position
             with torch.no_grad():
-                logits = self._ttt_predict_logits(x_masked, *args, **kwargs)
+                start_indices = torch.tensor([start], device=x.device)
+                logits = self._ttt_predict_logits(x_masked, start_indices, *args, **kwargs)
                 token_log_probs = torch.log_softmax(logits, dim=-1)
                 all_log_probs.append(token_log_probs[:, i-start])  # [1, vocab size]
 

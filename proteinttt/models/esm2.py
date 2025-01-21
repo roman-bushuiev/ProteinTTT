@@ -41,5 +41,5 @@ class ESM2TTT(TTTModule, ESM2):
     def _ttt_get_non_special_tokens(self) -> list[int]:
         return [self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.standard_toks]
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, *args, **kwargs) -> torch.Tensor:
         return self(batch)["logits"]  # [bs, seq_len] -> [bs, seq_len, vocab_size]

@@ -37,12 +37,11 @@ class ProSSTTTT(TTTModule, MODEL_CLASS):
     def _ttt_tokenize(self, *args, **kwargs) -> torch.Tensor:
         return kwargs["input_ids"] if "input_ids" in kwargs else args[0]
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, *args, **kwargs) -> torch.Tensor:
         # Copy structure sequence to all sequences in the batch and apply consistent cropping
         ss_input_ids=kwargs["ss_input_ids"]
         ss_input_ids = ss_input_ids[0].expand(batch.shape[0], -1)  # [1,seq_len] -> [bs, seq_len]
-        if "start_indices" in kwargs:
-            start_indices = kwargs["start_indices"]  # [bs]
+        if start_indices is not None:
             ss_input_ids_windows = []
             for i in range(batch.shape[0]):
                 start = start_indices[i]
