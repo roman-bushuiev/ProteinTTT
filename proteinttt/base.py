@@ -493,7 +493,8 @@ class TTTModule(torch.nn.Module, ABC):
 
         return batch_masked, targets, mask, start_indices
 
-    def _ttt_cross_entropy_loss(self,
+    def _ttt_cross_entropy_loss(
+        self,
         logits: torch.Tensor,
         targets: torch.Tensor,
         mask: torch.Tensor
@@ -511,10 +512,13 @@ class TTTModule(torch.nn.Module, ABC):
             logits_reshaped[mask_reshaped],
             targets_reshaped[mask_reshaped],
             reduction='none'
-        )
+        )  # [bs*seq_len]
 
-        # Reshape loss to [bs, masked_tokens], average over each sequence (dim=1), then average over batch
-        loss = loss.view(bs, mask.sum(dim=1)[0]).mean(dim=1).mean()
+        # Split loss back into per-sequence chunks and average each sequence separately
+        masked_tokens_per_seq = mask.sum(dim=1)  # [bs]
+        loss_split = torch.split(loss, masked_tokens_per_seq.tolist())  # List of [n_masked] tensors
+        seq_losses = torch.stack([chunk.mean() for chunk in loss_split])  # [bs]
+        loss = seq_losses.mean()
         return loss
 
     def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
