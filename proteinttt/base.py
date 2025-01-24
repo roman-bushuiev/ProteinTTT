@@ -37,7 +37,7 @@ class TTTConfig:
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
     loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', 'unnormalized_cross_entropy', TODO]
-    msa_mode: T.Optional[str] = None  # T.Optional[T.Literal['evotuning', 'none']] = None
+    msa: T.Optional[bool] = False
     msa_cache_dir: Path = Path.home() / '.cache' / 'ttt'
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
     score_seq_steps_list: T.Any = None  # T.Optional[int | list[int]]. None to use all steps
@@ -156,11 +156,9 @@ class TTTModule(torch.nn.Module, ABC):
         Returns:
             A dictionary containing the results of the TTT loop.
         """
-        
-        # TODO: not only evotuning for MSA
 
         # Tokenize input sequence or input MSA
-        if self.ttt_cfg.msa_mode is None:            
+        if not self.ttt_cfg.msa:            
             x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
         else:
             # Build MSA from scratch if needed
