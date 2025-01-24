@@ -13,7 +13,7 @@ from lora_diffusion.lora import inject_trainable_lora
 
 from proteinttt.utils.io import setup_logger
 from proteinttt.utils.torch import preserve_model_state, get_optimal_window
-from proteinttt.utils.msa import read_msa
+from proteinttt.utils.msa import read_msa, MSAServer
 
 
 @dataclass
@@ -37,6 +37,8 @@ class TTTConfig:
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
     loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', TODO]
+    msa_mode: T.Optional[str] = None  # T.Optional[T.Literal['evotuning', 'none']] = None
+    msa_cache_dir: Path = Path.home() / '.cache' / 'ttt'
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
     score_seq_steps_list: T.Any = None  # T.Optional[int | list[int]]. None to use all steps
     perplexity_early_stopping: T.Optional[float] = None
@@ -89,6 +91,9 @@ class TTTModule(torch.nn.Module, ABC):
             self.ttt_cfg = TTTConfig.from_yaml(ttt_cfg)
         self.ttt_cfg.verify()
 
+        # Set MSA server to automatically build MSA if needed
+        self.msa_server = MSAServer(self.ttt_cfg.msa_cache_dir)
+
         # Set random seed if specified, otherwise use environment seed
         self.ttt_generator = torch.Generator()
         if self.ttt_cfg.seed is not None:
@@ -132,22 +137,37 @@ class TTTModule(torch.nn.Module, ABC):
         return instance
 
     @preserve_model_state
-    def ttt(self, seq: T.Optional[str] = None, msa_pth: T.Optional[Path] = None, **kwargs) -> dict[str, T.Any]:
+    def ttt(
+        self,
+        seq: T.Optional[str] = None,
+        msa_pth: T.Optional[Path] = None,
+        **kwargs
+    ) -> dict[str, T.Any]:
         """
         Run TTT loop. After calling this method, the model will be customized to the input protein
         via test-time training (TTT).
 
         Args:
+            seq: Input amino acid sequence to customize the model to.
+            msa_pth: Optional path to MSA file. If None, MSA will be built on-the-fly from scratch. This argument will
+            be used only if TTTConfig.msa_mode is not None.
             **kwargs: Keyword arguments to forward of the original model
 
         Returns:
             A dictionary containing the results of the TTT loop.
         """
         
+        # TODO: not only evotuning for MSA
+
         # Tokenize input sequence or input MSA
-        if msa_pth is None:            
+        if self.ttt_cfg.msa_mode is None:            
             x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
         else:
+            # Build MSA from scratch if needed
+            if msa_pth is None:
+                msa_pth = self.msa_server.get(seq)
+            self.ttt_logger.debug(f"MSA path: {msa_pth}.")
+
             # Read MSA by replacing all insertions with padding tokens, then tokenize each sequence, and stack them
             x = []
             for seq in read_msa(msa_pth, replace_inserstions=self._ttt_token_to_str(self._ttt_get_padding_token())):
