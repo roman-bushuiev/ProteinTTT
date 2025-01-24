@@ -36,7 +36,7 @@ class TTTConfig:
     crop_size: int = 1024  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
-    loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', TODO]
+    loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', 'unnormalized_cross_entropy', TODO]
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
     score_seq_steps_list: T.Any = None  # T.Optional[int | list[int]]. None to use all steps
     perplexity_early_stopping: T.Optional[float] = None
@@ -267,9 +267,10 @@ class TTTModule(torch.nn.Module, ABC):
             logits = self._ttt_predict_logits(batch_masked, start_indices, **kwargs)
             
             # Calculate loss
-            assert logits.shape[:-1] == targets.shape, "Target shape does not match logits shape."
             if self.ttt_cfg.loss_kind == 'cross_entropy':
                 loss = self._ttt_cross_entropy_loss(logits, targets, mask)
+            elif self.ttt_cfg.loss_kind == 'unnormalized_cross_entropy':
+                loss = self._ttt_unnormalized_cross_entropy_loss(logits, targets, mask)
             else:
                 raise ValueError(f"Loss kind {self.ttt_cfg.loss_kind} not supported")
 
@@ -520,6 +521,14 @@ class TTTModule(torch.nn.Module, ABC):
         seq_losses = torch.stack([chunk.mean() for chunk in loss_split])  # [bs]
         loss = seq_losses.mean()
         return loss
+    
+    def _ttt_unnormalized_cross_entropy_loss(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        mask: torch.Tensor
+    ) -> torch.Tensor:
+        return torch.nn.functional.cross_entropy(logits, targets)
 
     def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
         """
