@@ -528,7 +528,14 @@ class TTTModule(torch.nn.Module, ABC):
         targets: torch.Tensor,
         mask: torch.Tensor
     ) -> torch.Tensor:
-        return torch.nn.functional.cross_entropy(logits, targets)
+        assert logits.ndim == 3, "Logits must be a 3D tensor [bs, seq_len, vocab_size]"
+        bs, seq_len, vocab_size = logits.shape
+
+        # Flatten logits and targets
+        logits_reshaped = logits.view(-1, vocab_size)  # [bs*seq_len, vocab_size]
+        targets_reshaped = targets.view(-1)  # [bs*seq_len]
+
+        return torch.nn.functional.cross_entropy(logits_reshaped, targets_reshaped)
 
     def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
         """
