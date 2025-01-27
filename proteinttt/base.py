@@ -29,6 +29,7 @@ class TTTConfig:
     lora_rank: int = 0
     lora_alpha: float = 32.0
     lora_target_replace_module: str = 'MultiheadAttention'
+    optimizer: str = 'sgd'  # T.Literal['adamw', 'sgd']
     momentum: float = 0.0
     weight_decay: float = 0.0
     batch_size: int = 2
@@ -394,12 +395,21 @@ class TTTModule(torch.nn.Module, ABC):
         return filter(lambda p: p.requires_grad, self.parameters())
 
     def _ttt_get_optimizer(self, parameters: T.Iterator[torch.nn.Parameter]) -> torch.optim.Optimizer:
-        optimizer = torch.optim.SGD(
-            parameters, 
-            lr=self.ttt_cfg.lr, 
-            momentum=self.ttt_cfg.momentum, 
-            weight_decay=self.ttt_cfg.weight_decay
-        )
+        if self.ttt_cfg.optimizer == 'sgd':
+            optimizer = torch.optim.SGD(
+                parameters, 
+                lr=self.ttt_cfg.lr, 
+                momentum=self.ttt_cfg.momentum, 
+                weight_decay=self.ttt_cfg.weight_decay
+            )
+        elif self.ttt_cfg.optimizer == 'adamw':
+            optimizer = torch.optim.AdamW(
+                parameters, 
+                lr=self.ttt_cfg.lr, 
+                weight_decay=self.ttt_cfg.weight_decay
+            )
+        else:
+            raise ValueError(f"Optimizer {self.ttt_cfg.optimizer} not supported")
         return optimizer
 
     def _ttt_get_state(self) -> T.Any:
