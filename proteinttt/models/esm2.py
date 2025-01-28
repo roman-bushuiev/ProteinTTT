@@ -5,7 +5,7 @@ from esm.model.esm2 import ESM2
 from proteinttt.base import TTTModule, TTTConfig
 
 
-# TODO Update configs for the new loss. These might be to aggressive
+# TODO Update this config for the new loss. These might be to aggressive
 DEFAULT_ESM2_35M_TTT_CFG = TTTConfig(
     lr=4e-4,
     batch_size=4,
@@ -17,8 +17,9 @@ DEFAULT_ESM2_35M_TTT_CFG = TTTConfig(
 DEFAULT_ESM2_650M_TTT_CFG = TTTConfig(
     lr=4e-5,
     batch_size=4,
-    ags=16,
-    steps=30
+    ags=4,
+    steps=30,
+    loss_kind="unnormalized_cross_entropy"
 )
 
 
