@@ -37,7 +37,7 @@ class TTTConfig:
     crop_size: int = 1024  # Used for ESM2 / ESMFold, SaProt, ProSST pre-training
     bert_leave_prob: float = 0.1
     bert_replace_prob: float = 0.1
-    loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', 'unnormalized_cross_entropy', TODO]
+    loss_kind: str = 'cross_entropy'  # T.Literal['cross_entropy', 'unnormalized_cross_entropy', 'msa_soft_labels' TODO]
     msa: T.Optional[bool] = False
     msa_cache_dir: Path = Path.home() / '.cache' / 'ttt'
     score_seq_kind: T.Optional[str] = None  # T.Optional[T.Literal['pseudo_perplexity', 'gordon2024', 'none']] = None
@@ -75,6 +75,9 @@ class TTTConfig:
 
         if self.perplexity_early_stopping is not None and self.score_seq_kind is None:
             raise ValueError("perplexity_early_stopping can only be used if score_seq_kind is not None")
+
+        if self.loss_kind == 'msa_soft_labels' and not self.msa:
+            raise ValueError("msa_soft_labels loss kind can only be used if msa=True")
 
 
 class TTTModule(torch.nn.Module, ABC):
@@ -157,22 +160,31 @@ class TTTModule(torch.nn.Module, ABC):
         Returns:
             A dictionary containing the results of the TTT loop.
         """
+        # Tokenize input sequence
+        x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
 
-        # Tokenize input sequence or input MSA
-        if not self.ttt_cfg.msa:            
-            x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
-        else:
+        # Build MSA if needed and tokenize it
+        msa = None
+        if self.ttt_cfg.msa:
             # Build MSA from scratch if needed
             if msa_pth is None:
                 msa_pth = self.msa_server.get(seq)
             self.ttt_logger.debug(f"MSA path: {msa_pth}.")
 
             # Read MSA by replacing all insertions with padding tokens, then tokenize each sequence, and stack them
-            x = []
+            msa = []
             for seq in read_msa(msa_pth, replace_inserstions=self._ttt_token_to_str(self._ttt_get_padding_token())):
-                x.append(self._ttt_tokenize(seq, **kwargs).squeeze(0))
-            x = torch.stack(x)  # [msa_len, seq_len]
-        
+                msa.append(self._ttt_tokenize(seq, **kwargs).squeeze(0))
+            msa = torch.stack(msa)  # [msa_len, seq_len]
+
+            # Check the MSA contains the target sequence as the first sequence
+            assert torch.all(x[0, :] == msa[0, :]), "First sequence in MSA must be the same as the input sequence"
+
+            # Set x to MSA to sample sequences from
+            # - except for MSA soft labels where MSA is only used for loss calculation
+            if not self.ttt_cfg.loss_kind == 'msa_soft_labels':
+                x = msa
+
         # Get trainable parameters and optimizer
         parameters = self._ttt_get_parameters()
         optimizer = self._ttt_get_optimizer(parameters)
@@ -195,8 +207,6 @@ class TTTModule(torch.nn.Module, ABC):
         self.eval()
         for step in range(self.ttt_cfg.steps * self.ttt_cfg.ags + 1):
             # Sample batch
-            # TODO Generalize _ttt_sample_batch to the case when x.shape[0] > 1 to fine-tune on multiple sequences.
-            # Just not replicate same sequence but sample different sequences.
             batch_masked, targets, mask, start_indices = self._ttt_sample_batch(x)  # [bs, seq_len]
 
             # Score sequence with the updated model (predict log probs for each position) and evaluate TTT step
@@ -290,6 +300,8 @@ class TTTModule(torch.nn.Module, ABC):
                 loss = self._ttt_cross_entropy_loss(logits, targets, mask)
             elif self.ttt_cfg.loss_kind == 'unnormalized_cross_entropy':
                 loss = self._ttt_unnormalized_cross_entropy_loss(logits, targets, mask)
+            elif self.ttt_cfg.loss_kind == 'msa_soft_labels':
+                loss = self._ttt_msa_soft_labels_loss(logits, targets, mask, msa, start_indices)
             else:
                 raise ValueError(f"Loss kind {self.ttt_cfg.loss_kind} not supported")
 
@@ -533,7 +545,10 @@ class TTTModule(torch.nn.Module, ABC):
 
         # Flatten logits and targets
         logits_reshaped = logits.view(-1, vocab_size)  # [bs*seq_len, vocab_size]
-        targets_reshaped = targets.view(-1)  # [bs*seq_len]
+        if targets.ndim == 3:  # class probabilities are passed
+            targets_reshaped = targets.view(-1, vocab_size)  # [bs*seq_len, vocab_size]
+        else:  # class indices are passed
+            targets_reshaped = targets.view(-1)  # [bs*seq_len]
         mask_reshaped = mask.view(-1).bool()  # [bs*seq_len]
 
         # Calculate cross-entropy loss over masked tokens
@@ -564,6 +579,51 @@ class TTTModule(torch.nn.Module, ABC):
         targets_reshaped = targets.view(-1)  # [bs*seq_len]
 
         return torch.nn.functional.cross_entropy(logits_reshaped, targets_reshaped)
+
+    def _ttt_msa_soft_labels_loss(
+        self,
+        logits: torch.Tensor,
+        targets: torch.Tensor,
+        mask: torch.Tensor,
+        msa: torch.Tensor,
+        start_indices: torch.Tensor
+    ) -> torch.Tensor:
+        # TODO Optimize by precomputing soft labels once after reading MSA
+
+        # Get token sets
+        all_tokens = self._ttt_get_all_tokens()
+        non_special_tokens = self._ttt_get_non_special_tokens()
+        vocab_size = len(all_tokens)
+        bs = logits.shape[0]
+        seq_len = msa.shape[1]
+
+        # Initialize soft labels tensor
+        msa_soft_labels = torch.zeros(seq_len, vocab_size)
+
+        # For each position, count frequency of each non-special token across MSA sequences
+        for pos in range(seq_len):
+            col_tokens, counts = torch.unique(msa[:, pos], return_counts=True)
+            for t, c in zip(col_tokens, counts):
+                if t in non_special_tokens:
+                    msa_soft_labels[pos, t] = c.item()
+
+            # Convert counts to probabilities (nans for <bos> and <eos> columns)
+            msa_soft_labels[pos] = msa_soft_labels[pos] / msa_soft_labels[pos].sum()
+
+        # Duplicate msa_soft_labels bs times to match logits shape
+        msa_soft_labels = msa_soft_labels.unsqueeze(0).expand(bs, seq_len, vocab_size)  # [bs, seq_len, vocab_size]
+
+        # Apply start indices to get subsequences of length crop_size
+        cropped_labels = []
+        for i in range(bs):
+            start = start_indices[i]
+            end = start + self.ttt_cfg.crop_size
+            cropped_labels.append(msa_soft_labels[i, start:end])
+        msa_soft_labels = torch.stack(cropped_labels)  # [bs, crop_size, vocab_size]
+        msa_soft_labels = msa_soft_labels.contiguous().to(logits.device)
+
+        loss = self._ttt_cross_entropy_loss(logits, msa_soft_labels, mask)
+        return loss
 
     def _ttt_score_seq(self, x: torch.Tensor, **kwargs) -> tuple[list[torch.Tensor], float]:
         """
