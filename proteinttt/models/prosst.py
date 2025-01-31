@@ -1,3 +1,5 @@
+import typing as T
+
 import torch
 from transformers import AutoModelForMaskedLM, AutoTokenizer
 
@@ -40,10 +42,14 @@ class ProSSTTTT(TTTModule, MODEL_CLASS):
     def _ttt_token_to_str(self, token: int) -> str:
         return self.ttt_tokenizer.decode([token])
 
-    def _ttt_tokenize(self, seq: str, **kwargs) -> torch.Tensor:
-        assert "input_ids" in kwargs, "input_ids must be provided"
-        x = kwargs["input_ids"]
-        assert isinstance(x, torch.Tensor), "input_ids must be a tensor"
+    def _ttt_tokenize(self, seq: T.Optional[str], **kwargs) -> torch.Tensor:
+        if seq is not None:
+            seq = seq.replace('X', '<unk>')
+            x = self.ttt_tokenizer(seq, return_tensors="pt")["input_ids"]
+        else:
+            assert "input_ids" in kwargs, "input_ids must be provided if no seq is provided"
+            x = kwargs["input_ids"]
+            assert isinstance(x, torch.Tensor), "input_ids must be a tensor"
         return x  # [bs, seq_len]
 
     def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs) -> torch.Tensor:
