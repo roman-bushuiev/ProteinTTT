@@ -55,7 +55,7 @@ def get_optimal_window(mutation_position_relative, seq_len_wo_special, model_win
     size. If the sequence length is less than the maximum context size, the full sequence is
     returned.
 
-    Copied from https://github.com/anton-bushuiev/ProteinGym/blob/a4866852c6fc8844993fca9416946a7fdc27aa7c/proteingym/baselines/trancepteve/trancepteve/utils/scoring_utils.py#L60
+    Copied from https://github.com/OATML-Markslab/ProteinGym/blob/e1d603d28ed8c6a27959c993de30312a83203a16/proteingym/baselines/trancepteve/trancepteve/utils/scoring_utils.py#L60
     """
     half_model_window = model_window // 2
     if seq_len_wo_special <= model_window:
