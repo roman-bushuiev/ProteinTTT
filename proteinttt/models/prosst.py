@@ -12,7 +12,18 @@ model = AutoModelForMaskedLM.from_pretrained(
 MODEL_CLASS = model.__class__
 
 
+DEFAULT_PROSST_TTT_CFG = TTTConfig(
+    lr=1e-5,
+    batch_size=4,
+    ags=8,
+    steps=30,
+    loss_kind="unnormalized_cross_entropy"
+)
+
+
 class ProSSTTTT(TTTModule, MODEL_CLASS):
+    ttt_default_cfg = DEFAULT_PROSST_TTT_CFG
+
     def __init__(self, ttt_cfg: TTTConfig, **kwargs):
         MODEL_CLASS.__init__(self, **kwargs)
         TTTModule.__init__(self, ttt_cfg=ttt_cfg)

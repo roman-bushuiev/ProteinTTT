@@ -7,8 +7,16 @@ from esm.model.msa_transformer import MSATransformer
 from proteinttt.base import TTTModule, TTTConfig
 
 
+DEFAULT_MSA_TRANSFORMER_TTT_CFG = TTTConfig(
+    lr=1e-4,
+    batch_size=1,
+    ags=8,
+    steps=30,
+)
+
+
 class MSATransformerTTT(TTTModule, MSATransformer):
-    ttt_default_cfg = None  # TODO: Add default config
+    ttt_default_cfg = DEFAULT_MSA_TRANSFORMER_TTT_CFG
 
     def __init__(self, ttt_cfg: TTTConfig, **kwargs):
         MSATransformer.__init__(self, **kwargs)

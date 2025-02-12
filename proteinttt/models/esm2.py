@@ -10,7 +10,8 @@ DEFAULT_ESM2_35M_TTT_CFG = TTTConfig(
     lr=4e-4,
     batch_size=4,
     ags=16,
-    steps=30
+    steps=30,
+    loss_kind="unnormalized_cross_entropy"
 )
 
 
