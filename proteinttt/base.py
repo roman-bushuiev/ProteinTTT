@@ -398,7 +398,7 @@ class TTTModule(torch.nn.Module, ABC):
         if self.ttt_cfg.lora_rank > 0:  # Train only LoRA parameters
 
             if inject_trainable_lora is None:
-                raise ImportError("lora_diffusion is not installed. Please install it with `pip install lora_diffusion`.")
+                raise ImportError("lora_diffusion is not installed. Please install it with `pip install git+https://github.com/cloneofsimo/lora.git`.")
 
             require_grad_param_groups = []
             for module in module_list:
