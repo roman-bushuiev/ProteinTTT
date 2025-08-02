@@ -9,7 +9,10 @@ from dataclasses import dataclass
 
 import pandas as pd
 import torch
-from lora_diffusion.lora import inject_trainable_lora
+try:
+    from lora_diffusion.lora import inject_trainable_lora
+except ImportError:
+    inject_trainable_lora = None
 
 from proteinttt.utils.io import setup_logger
 from proteinttt.utils.torch import preserve_model_state, get_optimal_window
@@ -393,6 +396,10 @@ class TTTModule(torch.nn.Module, ABC):
 
         # Unfreeze parameters to train
         if self.ttt_cfg.lora_rank > 0:  # Train only LoRA parameters
+
+            if inject_trainable_lora is None:
+                raise ImportError("lora_diffusion is not installed. Please install it with `pip install git+https://github.com/cloneofsimo/lora.git`.")
+
             require_grad_param_groups = []
             for module in module_list:
                 require_grad_params, names = inject_trainable_lora(
