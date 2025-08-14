@@ -1,13 +1,7 @@
 import subprocess
-import subprocess
-import torch.nn.functional as F
 import numpy as np
-import pandas as pd
-import esm
-import biotite.structure.io as bsio
 from pathlib import Path
 import Bio.PDB as bp
-from Bio.PDB import PDBParser, is_aa
 
 
 def calculate_tm_score(
@@ -72,12 +66,12 @@ def lddt_score(pdb_ref, pdb_model, atom_type="CA", cutoff=15.0, thresholds=(0.5,
     """
 
     def get_coords(pdb_path):
-        parser = PDBParser(QUIET=True)
+        parser = bp.PDBParser(QUIET=True)
         structure = parser.get_structure("s", pdb_path)
         coords = {}
         for chain in structure[0]:
             for res in chain:
-                if not is_aa(res, standard=True):
+                if not bp.is_aa(res, standard=True):
                     continue
                 key = (chain.id, res.id[1], res.id[2].strip() or "")
                 at = atom_type
