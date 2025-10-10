@@ -3,7 +3,7 @@ import sys
 from enum import Enum
 
 
-def setup_logger(log_file_path=None, log_name='log', debug=False):
+def setup_logger(log_file_path=None, log_name='log', logger_level='INFO'):
     """Setup a logger with a file handler and a stream handler.
     
     Copy from https://github.com/pluskal-lab/DreaMS/blob/4fbc05e6b264961e47906bafe6cd5f495a8cea54/dreams/utils/io.py#L38
@@ -14,7 +14,7 @@ def setup_logger(log_file_path=None, log_name='log', debug=False):
         debug (bool, optional): Whether to set the logger to debug level.
     """
     logger = logging.getLogger(log_name)
-    logger.setLevel(logging.INFO if not debug else logging.DEBUG)
+    logger.setLevel(getattr(logging, logger_level.upper(), logging.INFO))
     formatter = logging.Formatter('%(asctime)s | %(levelname)s | %(message)s')
 
     if logger.hasHandlers():

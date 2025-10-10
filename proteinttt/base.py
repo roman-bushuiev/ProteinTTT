@@ -52,7 +52,7 @@ class TTTConfig:
     seed: T.Optional[int] = 0  # None means using environment seed
     log_file_path: T.Optional[str] = None
     log_name: str = 'ttt_log'
-    debug: bool = False
+    logger_level: str = 'INFO'  # T.Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
 
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> 'TTTConfig':
@@ -110,7 +110,7 @@ class TTTModule(torch.nn.Module, ABC):
         self.ttt_logger = setup_logger(
             log_file_path=self.ttt_cfg.log_file_path, 
             log_name=self.ttt_cfg.log_name,
-            debug=self.ttt_cfg.debug
+            logger_level=self.ttt_cfg.logger_level
         )
         self.ttt_logger.debug(f"TTTConfig: {self.ttt_cfg}")
 
