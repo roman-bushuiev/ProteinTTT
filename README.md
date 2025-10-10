@@ -6,11 +6,9 @@
 
 ProteinTTT is a package that allows you to use test-time training (TTT) to improve the performance of protein language models via on-the-fly per-protein customization.
 
-🚨 The repository is under active development.
-
 ## Installation
 
-Please first install the model you are planning to use with TTT and then install ProteinTTT:
+Please first install the model you are planning to use with ProteinTTT and then install the package itself:
 
 ```bash
 git clone https://github.com/anton-bushuiev/ProteinTTT && pip install -e ProteinTTT
@@ -18,7 +16,7 @@ git clone https://github.com/anton-bushuiev/ProteinTTT && pip install -e Protein
 
 ## Usage
 
-In the following example, we use ESMFold + TTT to predict the structure of a protein. Here, customizing ESMFold with TTT leads to structure prediction with twice higher pLDDT.
+In the following example, we use ESMFold+ProteinTTT to predict the structure of a protein. Here, customizing ESMFold with ProteinTTT leads to structure prediction with twice higher pLDDT.
 
 ```python
 import torch
@@ -46,7 +44,7 @@ def predict_structure(model, sequence):
 predict_structure(model, sequence)
 # pLDDT: 38.43025
 
-# ================ TTT ================
+# ============ ProteinTTT =============
 ttt_cfg = DEFAULT_ESMFOLD_TTT_CFG
 ttt_cfg.steps = 10  # This is how you can modify config
 model = ESMFoldTTT.ttt_from_pretrained(model, ttt_cfg=ttt_cfg, esmfold_config=model.cfg)
@@ -57,7 +55,7 @@ predict_structure(model, sequence)
 # pLDDT: 78.69619
 
 # Reset model to original state (after this model.ttt can be called again on another protein)
-# ================ TTT ================
+# ============== ProteinTTT ===========
 model.ttt_reset()
 # =====================================
 ```

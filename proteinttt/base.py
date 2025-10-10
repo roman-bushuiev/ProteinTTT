@@ -22,10 +22,39 @@ from proteinttt.utils.msa import read_msa, MSAServer
 
 @dataclass
 class TTTConfig:
-    """
-    Configuration for test-time training (TTT).
+    """Configuration for protein test-time training (ProteinTTT).
 
-    TODO
+    This class contains all the hyperparameters and settings needed to customize a protein
+    language model to a specific protein sequence.
+
+    Args:
+        lr: Learning rate for optimization
+        ags: Number of gradient accumulation steps
+        steps: Number of optimization steps
+        lora_rank: Rank for LoRA adaptation (0 to disable)
+        lora_alpha: Scaling factor for LoRA layers
+        lora_target_replace_module: Class of modules to apply LoRA to
+        optimizer: Optimizer type ('adamw' or 'sgd')
+        momentum: Momentum for SGD optimizer
+        weight_decay: Weight decay regularization factor
+        batch_size: Number of sequences per batch
+        mask_ratio: Fraction of tokens to mask for MLM training
+        crop_size: Maximum sequence length to process
+        bert_leave_prob: Probability to leave token unchanged when masking
+        bert_replace_prob: Probability to replace token with random token
+        loss_kind: Type of loss function to use
+        msa: Whether to use multiple sequence alignment
+        msa_cache_dir: Directory to cache MSAs
+        score_seq_kind: Method for sequence scoring
+        score_seq_steps_list: Steps at which to score sequence
+        perplexity_early_stopping: Early stopping threshold for perplexity
+        eval_each_step: Whether to evaluate customization after each step (if _ttt_eval_step is implemented)
+        initial_state_reset: Whether to save initial model state for resetting
+        automatic_best_state_reset: Whether to automatically save best state
+        seed: Random seed (None uses environment seed)
+        log_file_path: Path to save log file
+        log_name: Name for logger
+        logger_level: Logging verbosity level
     """
 
     lr: float = 4e-4
@@ -68,7 +97,14 @@ class TTTConfig:
 
     @classmethod
     def from_yaml(cls, yaml_path: str | Path) -> "TTTConfig":
-        """Load TTTConfig from a YAML file using OmegaConf."""
+        """Load TTTConfig from a YAML file using OmegaConf.
+
+        Args:
+            yaml_path: Path to YAML configuration file
+
+        Returns:
+            TTTConfig instance initialized from YAML file
+        """
         default_conf = OmegaConf.structured(cls)
         file_conf = OmegaConf.load(yaml_path)
         conf = OmegaConf.merge(default_conf, file_conf)
@@ -76,7 +112,19 @@ class TTTConfig:
         return cls(**OmegaConf.to_container(conf))
 
     def verify(self) -> None:
-        """Verify the configuration."""
+        """Verify the configuration is valid.
+
+        Checks that:
+        - score_seq_kind is valid
+        - score_seq_steps_list has correct format
+        - perplexity_early_stopping is used correctly
+        - loss_kind and msa settings are compatible
+        - LoRA requirements are met if enabled
+
+        Raises:
+            ValueError: If configuration is invalid
+            ImportError: If LoRA is enabled but package not installed
+        """
         if self.score_seq_kind == "none":
             self.score_seq_kind = None
 
@@ -113,9 +161,35 @@ class TTTConfig:
 
 
 class TTTModule(torch.nn.Module, ABC):
+    """Base class for test-time training modules.
+
+    This abstract class provides the core functionality for test-time training of protein
+    language models. It handles model state management, optimization, evaluation, and
+    various training strategies like MLM and MSA-based training.
+
+    Child classes must implement several abstract methods to define model-specific
+    behavior.
+
+    Attributes:
+        ttt_default_cfg: Default configuration to use if none provided
+        ttt_cfg: Active configuration for this instance
+        msa_server: Server for handling multiple sequence alignments
+        ttt_generator: Random number generator for reproducibility
+        ttt_logger: Logger for tracking customization progress
+        _ttt_initial_state: Saved initial model state for resetting
+    """
+
     ttt_default_cfg: T.Optional[TTTConfig] = None
 
     def __init__(self, ttt_cfg: T.Optional[TTTConfig | Path | str] = None):
+        """Initialize TTTModule.
+
+        Args:
+            ttt_cfg: Configuration for test-time training. Can be:
+                - TTTConfig instance
+                - Path to YAML config file
+                - None to use default config
+        """
         ABC.__init__(
             self
         )  # no torch.nn.Module init because it is already done in child class
@@ -154,6 +228,16 @@ class TTTModule(torch.nn.Module, ABC):
         ttt_cfg: T.Optional[TTTConfig] = None,
         **kwargs,
     ) -> "TTTModule":
+        """Create TTTModule instance from a pretrained model.
+
+        Args:
+            model: Pretrained model to adapt
+            ttt_cfg: Configuration for test-time training
+            **kwargs: Additional arguments passed to the pretrained model's class constructor
+
+        Returns:
+            TTTModule instance initialized from pretrained model
+        """
         # Use default TTTConfig if not provided
         if ttt_cfg is None:
             ttt_cfg = cls.ttt_default_cfg or TTTConfig()
@@ -178,18 +262,19 @@ class TTTModule(torch.nn.Module, ABC):
         msa_pth: T.Optional[Path] = None,
         **kwargs,
     ) -> dict[str, T.Any]:
-        """
-        Run TTT loop. After calling this method, the model will be customized to the input protein
-        via test-time training (TTT).
+        """Run test-time training loop to customize model to input protein.
+
+        Performs iterative optimization to adapt the model's parameters to better fit
+        the input protein sequence. Uses masked language modeling on the input sequence and
+        optionally MSA.
 
         Args:
-            seq: Input amino acid sequence to customize the model to.
-            msa_pth: Optional path to MSA file. If None, MSA will be built on-the-fly from scratch. This argument will
-            be used only if TTTConfig.msa_mode is not None.
-            **kwargs: Keyword arguments to forward of the original model
+            seq: Input amino acid sequence to customize model to
+            msa_pth: Path to MSA file (optional)
+            **kwargs: Additional arguments passed to model forward pass
 
         Returns:
-            A dictionary containing the results of the TTT loop.
+            Dictionary containing training metrics and results
         """
         # Tokenize input sequence
         x = self._ttt_tokenize(seq, **kwargs)  # [bs=1, seq_len]
@@ -385,6 +470,11 @@ class TTTModule(torch.nn.Module, ABC):
         return dict(ttt_step_data=ttt_step_data, df=df)
 
     def ttt_reset(self) -> None:
+        """Reset model to initial state that was before ProteinTTT started.
+
+        Raises:
+            ValueError: If initial state was not saved during initialization
+        """
         if self._ttt_initial_state is None:
             raise ValueError(
                 "Initial state is not set. Make sure initial_state_reset=True in TTTConfig."
@@ -395,6 +485,15 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_tokenize(
         self, seq: T.Optional[str] = None, **kwargs
     ) -> torch.Tensor:
+        """Convert input sequence to tensor of token indices.
+
+        Args:
+            seq: Input amino acid sequence
+            **kwargs: Additional arguments for tokenization
+
+        Returns:
+            Tensor of token indices [batch_size, sequence_length]
+        """
         raise NotImplementedError(
             "Subclass must implement _ttt_tokenize method"
         )
@@ -403,14 +502,14 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_predict_logits(
         self, batch: torch.Tensor, start_indices: torch.Tensor = None
     ) -> torch.Tensor:
-        """
-        Predict logits for a batch of sequences.
+        """Predict logits for each position in input sequences.
 
         Args:
-            batch: Batch of sequences to predict logits for.
-            start_indices: Starting indices of sequences in the batch with respect to the
-                original input sequence used for TTT customization. This argument may be needed
-                as a result of cropping.
+            batch: Batch of token indices [batch_size, sequence_length]
+            start_indices: Starting indices for cropped sequences
+
+        Returns:
+            Logits tensor [batch_size, sequence_length, vocab_size]
         """
         raise NotImplementedError(
             "Subclass must implement _ttt_predict_logits method"
@@ -418,48 +517,79 @@ class TTTModule(torch.nn.Module, ABC):
 
     @abstractmethod
     def _ttt_mask_token(self, token: int) -> int:
+        """Convert token to its masked version.
+
+        Args:
+            token: Token index to mask
+
+        Returns:
+            Index of mask token
+        """
         raise NotImplementedError(
             "Subclass must implement _ttt_mask_token method"
         )
 
     @abstractmethod
     def _ttt_get_non_special_tokens(self) -> torch.Tensor:
+        """Get indices of non-special tokens (e.g. 20 standard amino acids).
+
+        Returns:
+            Tensor of token indices
+        """
         raise NotImplementedError(
             "Subclass must implement _ttt_get_non_special_tokens method"
         )
 
     @abstractmethod
     def _ttt_get_padding_token(self) -> int:
+        """Get index of padding token.
+
+        Returns:
+            Padding token index
+        """
         raise NotImplementedError(
             "Subclass must implement _ttt_get_padding_token method"
         )
 
     @abstractmethod
     def _ttt_token_to_str(self, token: int) -> str:
+        """Convert token index to string representation.
+
+        Args:
+            token: Token index
+
+        Returns:
+            String representation of token
+        """
         raise NotImplementedError(
             "Subclass must implement _ttt_token_to_str method"
         )
 
     def _ttt_get_trainable_modules(self) -> list[torch.nn.Module]:
-        """
-        Return a list of modules to train. _ttt_get_frozen_modules is called after this function, so
-        the returned modules can contain parameters that will be frozen.
+        """Get list of modules to train.
+
+        Note that some parameters in these modules may still be frozen by
+        _ttt_get_frozen_modules.
+
+        Returns:
+            List of PyTorch modules
         """
         return [self]
 
     def _ttt_get_frozen_modules(self) -> list[torch.nn.Module]:
-        """
-        Return a list of modules to freeze.
+        """Get list of modules to freeze during training.
+
+        Returns:
+            List of PyTorch modules
         """
         return []
 
     def _ttt_get_parameters(self) -> T.Iterator[torch.nn.Parameter]:
-        """
-        Configures and returns trainable parameters for TTT.
+        """Configure and return trainable parameters for test-time training.
 
-        If lora_rank > 0, injects LoRA layers into modules within
-        _ttt_get_trainable_modules() and makes only LoRA parameters trainable. Otherwise,
-        makes parameters trainable in _ttt_get_trainable_modules() excluding _ttt_get_frozen_modules().
+        If LoRA is enabled, injects LoRA layers and makes only those parameters
+        trainable. Otherwise makes parameters trainable in modules from
+        _ttt_get_trainable_modules excluding those in _ttt_get_frozen_modules.
 
         Returns:
             Iterator of parameters requiring gradients
@@ -514,6 +644,17 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_get_optimizer(
         self, parameters: T.Iterator[torch.nn.Parameter]
     ) -> torch.optim.Optimizer:
+        """Create optimizer for test-time training.
+
+        Args:
+            parameters: Iterator of parameters to optimize
+
+        Returns:
+            PyTorch optimizer
+
+        Raises:
+            ValueError: If optimizer type not supported
+        """
         if self.ttt_cfg.optimizer == "sgd":
             optimizer = torch.optim.SGD(
                 parameters,
@@ -534,15 +675,15 @@ class TTTModule(torch.nn.Module, ABC):
         return optimizer
 
     def _ttt_get_state(self) -> T.Any:
-        """Creates a deep copy of all child modules' states.
+        """Create deep copy of all child modules' states.
 
-        The whole modules rather than parameters are saved to avoid support changing modules such
-        as in the case of LoRA.
+        The whole modules rather than parameters are saved to avoid support changing
+        modules such as in the case of LoRA.
 
-        TODO Optimize memory by only saving modules from self._ttt_get_trainable_modules()
+        TODO: Optimize memory by only saving modules from _ttt_get_trainable_modules()
 
         Returns:
-            A dictionary mapping module names to their copied states.
+            Dictionary mapping module names to their copied states
         """
         state = {}
         for name, module in self.named_children():
@@ -550,7 +691,7 @@ class TTTModule(torch.nn.Module, ABC):
         return state
 
     def _ttt_set_state(self, state: T.Any) -> None:
-        """Restores model to a previously saved state.
+        """Restore model to a previously saved state.
 
         Args:
             state: Dictionary of module states from _ttt_get_state()
@@ -563,6 +704,18 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_sample_batch(
         self, x: torch.Tensor
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Sample and mask a batch of sequences for training.
+
+        Args:
+            x: Input sequences [num_sequences, sequence_length]
+
+        Returns:
+            Tuple containing:
+            - Masked sequences [batch_size, crop_size]
+            - Target sequences [batch_size, crop_size]
+            - Mask indicating masked positions [batch_size, crop_size]
+            - Starting indices for cropped sequences [batch_size]
+        """
         _, seq_len = x.shape
         batch_size = self.ttt_cfg.batch_size
         crop_size = self.ttt_cfg.crop_size
@@ -674,6 +827,19 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_cross_entropy_loss(
         self, logits: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor
     ) -> torch.Tensor:
+        """Calculate cross entropy loss over masked tokens.
+
+        Computes per-sequence cross entropy loss by first flattening the inputs, calculating
+        loss only on masked tokens, then splitting back into per-sequence chunks and averaging.
+
+        Args:
+            logits: Model predictions [batch_size, sequence_length, vocab_size]
+            targets: Ground truth tokens [batch_size, sequence_length] or [batch_size, sequence_length, vocab_size]
+            mask: Boolean mask indicating positions to calculate loss for [batch_size, sequence_length]
+
+        Returns:
+            Mean cross entropy loss across sequences
+        """
         assert (
             logits.ndim == 3
         ), "Logits must be a 3D tensor [bs, seq_len, vocab_size]"
@@ -710,6 +876,18 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_unnormalized_cross_entropy_loss(
         self, logits: torch.Tensor, targets: torch.Tensor, mask: torch.Tensor
     ) -> torch.Tensor:
+        """Calculate unnormalized cross entropy loss.
+
+        Similar to cross entropy loss but without normalizing by sequence length.
+
+        Args:
+            logits: Model predictions [batch_size, sequence_length, vocab_size]
+            targets: Ground truth token indices [batch_size, sequence_length]
+            mask: Boolean mask indicating positions to calculate loss for [batch_size, sequence_length]
+
+        Returns:
+            Unnormalized cross entropy loss
+        """
         assert (
             logits.ndim == 3
         ), "Logits must be a 3D tensor [bs, seq_len, vocab_size]"
@@ -733,6 +911,23 @@ class TTTModule(torch.nn.Module, ABC):
         msa: torch.Tensor,
         start_indices: torch.Tensor,
     ) -> torch.Tensor:
+        """Calculate loss using soft labels derived from MSA frequencies.
+
+        For each position, computes amino acid frequencies from the MSA and uses these as
+        soft labels for cross entropy loss calculation. See Gong et al. 2024 "Evolution-Inspired
+        Loss Functions for Protein Representation Learning"
+        (https://proceedings.mlr.press/v235/gong24e.html) for details on soft labels.
+
+        Args:
+            logits: Model predictions [batch_size, sequence_length, vocab_size]
+            targets: Ground truth tokens [batch_size, sequence_length]
+            mask: Boolean mask indicating positions to calculate loss for [batch_size, sequence_length]
+            msa: Multiple sequence alignment [num_sequences, sequence_length]
+            start_indices: Starting indices for cropped sequences [batch_size]
+
+        Returns:
+            Cross entropy loss using MSA-derived soft labels
+        """
         # TODO Optimize by precomputing soft labels once after reading MSA
 
         # Get token sets
@@ -779,8 +974,7 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq(
         self, x: torch.Tensor, **kwargs
     ) -> tuple[list[torch.Tensor], float]:
-        """
-        Score a sequence using TTT.
+        """Score a sequence.
 
         If the sequence is a multiple sequence alignment (MSA), only the first sequence is
         used for scoring. The function handles special tokens by skipping them for perplexity
@@ -788,9 +982,14 @@ class TTTModule(torch.nn.Module, ABC):
         when the sequence length is larger than the model context size (crop_size) by using the
         optimal window selection from ProteinGym when masking tokens.
 
+        Args:
+            x: Input sequence tensor [1, sequence_length]
+            **kwargs: Additional arguments passed to model forward pass
+
         Returns:
-            all_log_probs: Log probabilities for each token in the sequence when masked.
-            perplexity: Perplexity of the sequence.
+            tuple containing:
+                - all_log_probs: Log probabilities for each token in the sequence when masked
+                - perplexity: Perplexity of the sequence
         """
         # Check input shape
         assert x.ndim == 2, "Input must be a 2D tensor"
@@ -814,6 +1013,20 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_pseudo_perplexity(
         self, x: torch.Tensor, **kwargs
     ) -> tuple[list[torch.Tensor], float]:
+        """Score sequence using pseudo-perplexity.
+
+        Calculates pseudo-perplexity by masking each token one at a time and computing
+        the model's prediction probability for the original token.
+
+        Args:
+            x: Input sequence tensor [1, sequence_length]
+            **kwargs: Additional arguments passed to model forward pass
+
+        Returns:
+            tuple containing:
+                - all_log_probs: Log probabilities for each token in the sequence when masked
+                - perplexity: Pseudo-perplexity of the sequence
+        """
         # Get model-specific token sets
         all_tokens = self._ttt_get_all_tokens()
         non_special_tokens = self._ttt_get_non_special_tokens()
@@ -875,11 +1088,23 @@ class TTTModule(torch.nn.Module, ABC):
     def _ttt_score_seq_gordon2024(
         self, x: torch.Tensor, **kwargs
     ) -> tuple[list[torch.Tensor], float]:
-        """
-        Score a sequence in a single forward pass using a method from Gordon et al. 2024
-        (https://openreview.net/forum?id=UvPdpa4LuV).
+        """Score sequence using method from Gordon et al. 2024.
 
-        Work in progress.
+        Implements sequence scoring method from Gordon et al. 2024
+        (https://openreview.net/forum?id=UvPdpa4LuV) that requires only a single
+        forward pass without masking.
+
+        Args:
+            x: Input sequence tensor [1, sequence_length]
+            **kwargs: Additional arguments passed to model forward pass
+
+        Returns:
+            tuple containing:
+                - all_log_probs: Log probabilities for each token in the sequence
+                - perplexity: Perplexity calculated using Gordon et al. method
+
+        Note:
+            This is a work in progress implementation.
         """
         # Get all probabilities in a single forward pass without masking
         with torch.no_grad():
@@ -931,4 +1156,24 @@ class TTTModule(torch.nn.Module, ABC):
         msa_pth: Path,
         **kwargs,
     ) -> tuple[dict, dict, T.Optional[float]]:
+        """Evaluate model during test-time training (e.g., to select the optimal step).
+
+        Base implementation that returns empty dictionaries. Child classes should override
+        this to implement model-specific evaluation.
+
+        Args:
+            step: Current training step
+            loss: Training loss at current step
+            perplexity: Perplexity at current step
+            all_log_probs: Log probabilities for each token
+            seq: Input amino acid sequence
+            msa_pth: Path to MSA file
+            **kwargs: Additional arguments passed to model forward pass
+
+        Returns:
+            tuple containing:
+                - Dictionary of predictions
+                - Dictionary of evaluation metrics
+                - Optional confidence score
+        """
         return {}, {}, None
