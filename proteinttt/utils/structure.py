@@ -2,16 +2,20 @@ import subprocess
 import numpy as np
 from pathlib import Path
 import Bio.PDB as bp
+import biotite.structure.io as bsio
 
 
 def calculate_tm_score(
     pred_path, pdb_path, chain_id=None, use_tmalign=False, verbose=False,
-    tmscore_path="/scratch/project/open-32-14/pimenol1/ProteinTTT/ProteinTTT/TMalign",
-    tmalign_path="/scratch/project/open-32-14/pimenol1/ProteinTTT/ProteinTTT/TMalign.cpp"
+    tmscore_path=None,
+    tmalign_path=None
 ):
 
     if chain_id is not None:
         raise NotImplementedError("Chain ID is not implemented for TM-score calculation.")
+    
+    if tmscore_path is None or tmalign_path is None:
+        raise ValueError("Paths to TMscore and TMalign executables must be provided.")
 
     # Run TMscore and capture the output
     command = [tmalign_path, pdb_path, pred_path] if use_tmalign else [tmscore_path, pred_path, pdb_path]
@@ -106,3 +110,10 @@ def lddt_score(pdb_ref, pdb_model, atom_type="CA", cutoff=15.0, thresholds=(0.5,
         per_res.append(score)
 
     return float(np.mean(per_res)) if per_res else float("nan")
+
+
+def calculate_plddt(pdb_file_path):
+    """Calculate mean pLDDT from a PDB file."""
+    struct = bsio.load_structure(pdb_file_path, extra_fields=["b_factor"])
+    pLDDT = float(np.asarray(struct.b_factor, dtype=float).mean())
+    return pLDDT
