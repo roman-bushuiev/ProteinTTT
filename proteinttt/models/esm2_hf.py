@@ -10,6 +10,7 @@ class ESM2TTT_HF(TTTModule, EsmForMaskedLM):
     """
     ESM2TTT_HF is a TTTModule that uses the ESM2 model from Hugging Face.
     """
+
     ttt_default_cfg = DEFAULT_ESM2_35M_TTT_CFG
 
     def __init__(self, ttt_cfg: TTTConfig, **kwargs):
@@ -19,10 +20,12 @@ class ESM2TTT_HF(TTTModule, EsmForMaskedLM):
 
     def _ttt_tokenize(self, seq: T.Optional[str], **kwargs) -> torch.Tensor:
         if seq is not None:
-            seq = seq.replace('X', '<unk>')
+            seq = seq.replace("X", "<unk>")
             x = self.ttt_tokenizer(seq, return_tensors="pt")["input_ids"]
         else:
-            assert "input_ids" in kwargs, "input_ids must be provided if no seq is provided"
+            assert (
+                "input_ids" in kwargs
+            ), "input_ids must be provided if no seq is provided"
             x = kwargs["input_ids"]
             assert isinstance(x, torch.Tensor), "input_ids must be a tensor"
         return x  # [bs, seq_len]
@@ -44,11 +47,14 @@ class ESM2TTT_HF(TTTModule, EsmForMaskedLM):
 
     def _ttt_get_non_special_tokens(self) -> list[int]:
         return [
-            t for t in self._ttt_get_all_tokens()
+            t
+            for t in self._ttt_get_all_tokens()
             if t not in self.ttt_tokenizer.all_special_ids
         ]
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs) -> torch.Tensor:
+    def _ttt_predict_logits(
+        self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs
+    ) -> torch.Tensor:
         # Assumes batch is [bs, seq_len] input_ids
         attention_mask = (batch != self._ttt_get_padding_token()).long()
         outputs = self(input_ids=batch, attention_mask=attention_mask)

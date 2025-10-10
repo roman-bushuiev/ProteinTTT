@@ -12,9 +12,7 @@ from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
-TQDM_BAR_FORMAT = (
-    "{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} remaining: {remaining}]"
-)
+TQDM_BAR_FORMAT = "{l_bar}{bar}| {n_fmt}/{total_fmt} [elapsed: {elapsed} remaining: {remaining}]"
 
 
 def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
@@ -50,7 +48,9 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
                     headers=headers,
                 )
             except requests.exceptions.Timeout:
-                logger.warning("Timeout while submitting to MSA server. Retrying...")
+                logger.warning(
+                    "Timeout while submitting to MSA server. Retrying..."
+                )
                 continue
             except Exception as e:
                 error_count += 1
@@ -106,7 +106,9 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
         while True:
             try:
                 res = requests.get(
-                    f"{host_url}/result/download/{ID}", timeout=6.02, headers=headers
+                    f"{host_url}/result/download/{ID}",
+                    timeout=6.02,
+                    headers=headers,
                 )
             except requests.exceptions.Timeout:
                 logger.warning(
@@ -171,7 +173,9 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
                 out = submit(seqs_unique, mode, N)
                 while out["status"] in ["UNKNOWN", "RATELIMIT"]:
                     sleep_time = 5 + random.randint(0, 5)
-                    logger.error(f"Sleeping for {sleep_time}s. Reason: {out['status']}")
+                    logger.error(
+                        f"Sleeping for {sleep_time}s. Reason: {out['status']}"
+                    )
                     # resubmit
                     time.sleep(sleep_time)
                     out = submit(seqs_unique, mode, N)
@@ -252,7 +256,7 @@ def run_mmseqs2(  # noqa: PLR0912, D103, C901, PLR0915
 
     a3m_lines = ["".join(a3m_lines[n]) for n in Ms]
 
-    ### 
+    ###
     if os.path.exists(path):
         os.system(f"rm -rf {path}")
 

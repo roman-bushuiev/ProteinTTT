@@ -11,12 +11,7 @@ from proteinttt.base import TTTModule, TTTConfig
 
 
 DEFAULT_ESMFOLD_TTT_CFG = TTTConfig(
-    lr=4e-4,
-    batch_size=4,
-    ags=4,
-    steps=30,
-    lora_rank=8,
-    lora_alpha=32.0
+    lr=4e-4, batch_size=4, ags=4, steps=30, lora_rank=8, lora_alpha=32.0
 )
 
 
@@ -26,7 +21,9 @@ class ESMFoldTTT(TTTModule, ESMFold):
     def __init__(self, ttt_cfg: TTTConfig, **kwargs):
         ESMFold.__init__(self, **kwargs)
         TTTModule.__init__(self, ttt_cfg=ttt_cfg)
-        self.ttt_alphabet = esm.Alphabet.from_architecture("ESM-1b")  # ESM2 uses ESM-1b alphabet
+        self.ttt_alphabet = esm.Alphabet.from_architecture(
+            "ESM-1b"
+        )  # ESM2 uses ESM-1b alphabet
         self.ttt_batch_converter = self.ttt_alphabet.get_batch_converter()
 
     def _ttt_tokenize(self, seq: str, **kwargs) -> torch.Tensor:
@@ -38,10 +35,10 @@ class ESMFoldTTT(TTTModule, ESMFold):
 
     def _ttt_get_frozen_modules(self) -> list[torch.nn.Module]:
         return [self.esm.embed_tokens]
-    
+
     def _ttt_mask_token(self, token: int) -> int:
         return self.ttt_alphabet.mask_idx
-    
+
     def _ttt_get_padding_token(self) -> int:
         return self.ttt_alphabet.padding_idx
 
@@ -49,13 +46,22 @@ class ESMFoldTTT(TTTModule, ESMFold):
         return self.ttt_alphabet.all_toks[token]
 
     def _ttt_get_all_tokens(self) -> list[int]:
-        return [self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.all_toks]
-    
-    def _ttt_get_non_special_tokens(self) -> list[int]:
-        return [self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.standard_toks]
+        return [
+            self.ttt_alphabet.tok_to_idx[t] for t in self.ttt_alphabet.all_toks
+        ]
 
-    def _ttt_predict_logits(self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs) -> torch.Tensor:
-        return self.esm(batch)["logits"]  # [bs, seq_len] -> [bs, seq_len, vocab_size]
+    def _ttt_get_non_special_tokens(self) -> list[int]:
+        return [
+            self.ttt_alphabet.tok_to_idx[t]
+            for t in self.ttt_alphabet.standard_toks
+        ]
+
+    def _ttt_predict_logits(
+        self, batch: torch.Tensor, start_indices: torch.Tensor = None, **kwargs
+    ) -> torch.Tensor:
+        return self.esm(batch)[
+            "logits"
+        ]  # [bs, seq_len] -> [bs, seq_len, vocab_size]
 
     def _ttt_eval_step(
         self,
@@ -65,25 +71,23 @@ class ESMFoldTTT(TTTModule, ESMFold):
         all_log_probs: torch.Tensor,
         seq: str,
         msa_pth: Path,
-        **kwargs
+        **kwargs,
     ) -> tuple[dict, dict, T.Optional[float]]:
-
         # Predict structure
         with torch.no_grad():
             pdb_str = self.infer_pdb(seq, masking_pattern=None)
 
         # Calculate pLDDT
         # TODO Optimize by not saving to disk
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb') as tmp:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".pdb") as tmp:
             tmp.write(pdb_str)
             tmp.flush()
             struct = bsio.load_structure(tmp.name, extra_fields=["b_factor"])
             plddt = struct.b_factor.mean()
 
         # Store predictions
-        eval_step_preds = {'pdb': pdb_str}
-        eval_step_metric_dict = {'plddt': plddt}
+        eval_step_preds = {"pdb": pdb_str}
+        eval_step_metric_dict = {"plddt": plddt}
         confidence = plddt
 
         return eval_step_preds, eval_step_metric_dict, confidence
-    

@@ -6,24 +6,32 @@ import biotite.structure.io as bsio
 
 
 def calculate_tm_score(
-    pred_path, pdb_path, chain_id=None, use_tmalign=False, verbose=False,
+    pred_path,
+    pdb_path,
+    chain_id=None,
+    use_tmalign=False,
+    verbose=False,
     tmscore_path=None,
-    tmalign_path=None
+    tmalign_path=None,
 ):
-
     if chain_id is not None:
-        raise NotImplementedError("Chain ID is not implemented for TM-score calculation.")
-    
+        raise NotImplementedError(
+            "Chain ID is not implemented for TM-score calculation."
+        )
+
     if tmscore_path is None or tmalign_path is None:
-        raise ValueError("Paths to TMscore and TMalign executables must be provided.")
+        raise ValueError(
+            "Paths to TMscore and TMalign executables must be provided."
+        )
 
     # Run TMscore and capture the output
-    command = [tmalign_path, pdb_path, pred_path] if use_tmalign else [tmscore_path, pred_path, pdb_path]
+    command = (
+        [tmalign_path, pdb_path, pred_path]
+        if use_tmalign
+        else [tmscore_path, pred_path, pdb_path]
+    )
     result = subprocess.run(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True
+        command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
 
     def print_cmd():
@@ -33,23 +41,30 @@ def calculate_tm_score(
         print(result.stdout)
         print("TMscore error:")
         print(result.stderr)
+
     if verbose:
         print_cmd()
 
     # Extract TM-score from the output
-    for line in result.stdout.split('\n'):
+    for line in result.stdout.split("\n"):
         if line.startswith("TM-score"):
-            tm_score = float(line.split('=')[1].split()[0])
+            tm_score = float(line.split("=")[1].split()[0])
             return tm_score
 
     print_cmd()
     raise ValueError("TM-score not found in the output")
 
 
-def lddt_score(pdb_ref, pdb_model, atom_type="CA", cutoff=15.0, thresholds=(0.5, 1.0, 2.0, 4.0)):
+def lddt_score(
+    pdb_ref,
+    pdb_model,
+    atom_type="CA",
+    cutoff=15.0,
+    thresholds=(0.5, 1.0, 2.0, 4.0),
+):
     """
     Compute CA/CB-based lDDT between two protein structures.
-    
+
     Parameters
     ----------
     pdb_ref : str
@@ -62,7 +77,7 @@ def lddt_score(pdb_ref, pdb_model, atom_type="CA", cutoff=15.0, thresholds=(0.5,
         Neighbor distance cutoff in Å (default 15.0)
     thresholds : tuple of float
         lDDT thresholds in Å (default (0.5, 1.0, 2.0, 4.0))
-    
+
     Returns
     -------
     float

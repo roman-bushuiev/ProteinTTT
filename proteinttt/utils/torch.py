@@ -18,13 +18,16 @@ def preserve_model_state(func):
     Returns:
         The wrapped function that preserves the model state.
     """
+
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         # Store original training state
         was_training = self.training
 
         # Store original requires_grad states
-        orig_requires_grad = {name: param.requires_grad for name, param in self.named_parameters()}
+        orig_requires_grad = {
+            name: param.requires_grad for name, param in self.named_parameters()
+        }
 
         # Store original device
         orig_device = next(self.parameters()).device
@@ -50,8 +53,10 @@ def preserve_model_state(func):
     return wrapper
 
 
-def get_optimal_window(mutation_position_relative, seq_len_wo_special, model_window):
-    """Helper function that selects an optimal sequence window that fits the maximum model context 
+def get_optimal_window(
+    mutation_position_relative, seq_len_wo_special, model_window
+):
+    """Helper function that selects an optimal sequence window that fits the maximum model context
     size. If the sequence length is less than the maximum context size, the full sequence is
     returned.
 
@@ -59,13 +64,16 @@ def get_optimal_window(mutation_position_relative, seq_len_wo_special, model_win
     """
     half_model_window = model_window // 2
     if seq_len_wo_special <= model_window:
-        return [0,seq_len_wo_special]
+        return [0, seq_len_wo_special]
     elif mutation_position_relative < half_model_window:
-        return [0,model_window]
+        return [0, model_window]
     elif mutation_position_relative >= seq_len_wo_special - half_model_window:
         return [seq_len_wo_special - model_window, seq_len_wo_special]
     else:
         return [
-            max(0,mutation_position_relative-half_model_window),
-            min(seq_len_wo_special,mutation_position_relative+half_model_window)
+            max(0, mutation_position_relative - half_model_window),
+            min(
+                seq_len_wo_special,
+                mutation_position_relative + half_model_window,
+            ),
         ]

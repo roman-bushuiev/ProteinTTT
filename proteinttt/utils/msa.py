@@ -15,7 +15,10 @@ def process_msa_seq(seq: str, replace_inserstions: Optional[str] = None):
 
 def read_msa(pth: Path, replace_inserstions: Optional[str] = None) -> list[str]:
     """Reads an .a2m MSA file and returns a list of sequences."""
-    msa = [process_msa_seq(str(s.seq), replace_inserstions) for s in SeqIO.parse(pth, "fasta")]
+    msa = [
+        process_msa_seq(str(s.seq), replace_inserstions)
+        for s in SeqIO.parse(pth, "fasta")
+    ]
     return msa
 
 
@@ -25,6 +28,7 @@ class MSAServer:
     previously built, it will be read from the cache. Otherwise, it will be built from scratch using the
     Boltz-1/OpenFold code (https://github.com/jwohlwend/boltz/blob/main/src/boltz/data/msa/mmseqs2.py).
     """
+
     def __init__(self, cache_dir: Path):
         self.cache_dir = cache_dir
         self.cache_dir.mkdir(parents=True, exist_ok=True)
@@ -42,7 +46,9 @@ class MSAServer:
         return self._read_from_cache(seq_id)
 
     def _fetch_from_server(self, seq: str, seq_id: str) -> Path:
-        a3m_lines = run_mmseqs2(x=seq, prefix=self.cache_dir / f"mmseqs2_{seq_id}")
+        a3m_lines = run_mmseqs2(
+            x=seq, prefix=self.cache_dir / f"mmseqs2_{seq_id}"
+        )
         a3m_pth = self._seq_id_to_a3m_pth(seq_id)
         with open(a3m_pth, "w") as f:
             for line in a3m_lines:
@@ -54,7 +60,7 @@ class MSAServer:
 
     def _read_from_cache(self, seq_id: str) -> Path:
         return self._seq_id_to_a3m_pth(seq_id)
-    
+
     def _seq_id_to_a3m_pth(self, seq_id: str) -> Path:
         return self.cache_dir / f"{seq_id}.a3m"
 
