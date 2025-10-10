@@ -105,6 +105,12 @@ class TTTConfig:
                 "msa_soft_labels loss kind can only be used if msa=True"
             )
 
+        if lora_rank > 0 and inject_trainable_lora is None:
+            raise ImportError(
+                "lora_diffusion is not installed. Please install it with "
+                "`pip install git+https://github.com/cloneofsimo/lora.git`."
+            )
+
 
 class TTTModule(torch.nn.Module, ABC):
     ttt_default_cfg: T.Optional[TTTConfig] = None
