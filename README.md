@@ -62,6 +62,10 @@ model.ttt_reset()
 
 See `notebooks/demo.ipynb` for more usage examples.
 
+## Implementing ProteinTTT for your custom model
+
+The abstract class `proteinttt.base.TTTModule` implements all core functionality of ProteinTTT, including batch construction, optimization, and logging. To implement ProteinTTT for your custom model, you can subclass `TTTModule` and implement several methods that specify your model's interface (the alphabet and logic for predicting logits). Optionally, you can also implement logic for evaluating the model during test-time training to select the optimal step. For an example implementation, see how ProteinTTT is implemented for ESMFold in `ProteinTTT/proteinttt/models/esmfold.py`. The submodule `ProteinTTT/proteinttt/models` contains other examples.
+
 ## References
 
 If you use ProteinTTT in your research, please cite the following paper:
