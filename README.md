@@ -1,14 +1,21 @@
+<div align="center">
+
 # ProteinTTT
 
+[![arXiv badge](https://img.shields.io/badge/arXiv-2411.02109-b31b1b.svg)](https://arxiv.org/abs/2411.02109)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+</div>
+
 <p align="center">
-  <img src="assets/cameo_folding_example.png" width="800" alt="Example of TTT applied to protein folding">
+  <img src="assets/folding_example.gif" width="800" alt="Example of TTT applied to protein folding">
 </p>
 
-ProteinTTT is a package that allows you to use test-time training (TTT) to improve the performance of protein language models via on-the-fly per-protein customization.
+ProteinTTT allows customizing protein language models to one protein at a time for enhanced performance on challenging targets.
 
 ## Installation
 
-Please first install the model you are planning to use with ProteinTTT and then install the package itself:
+Please first install the model you are planning to use with ProteinTTT and then install the `proteinttt` package itself:
 
 ```bash
 git clone https://github.com/anton-bushuiev/ProteinTTT && pip install -e ProteinTTT
@@ -71,12 +78,12 @@ The abstract class `proteinttt.base.TTTModule` implements all core functionality
 If you use ProteinTTT in your research, please cite the following paper:
 
 ```bibtex
-@article{bushuiev2024training,
-  title={Training on test proteins improves fitness, structure, and function prediction},
-  author={Bushuiev, Anton and Bushuiev, Roman and Zadorozhny, Nikola and Samusevich, Raman and St{\"a}rk, Hannes and Sedlar, Jiri and Pluskal, Tom{\'a}{\v{s}} and Sivic, Josef},
+@article{bushuiev2025one,
+  title={One protein is all you need},
+  author={Bushuiev, Anton and Bushuiev, Roman and Pimenova, Olga and Zadorozhny, Nikola and Samusevich, Raman and Manaskova, Elisabet and Kim, Rachel Seongeun and St{\"a}rk, Hannes and Sedlar, Jiri and Steinegger, Martin and Tom{\'a}{\v{s}} and Sivic, Josef},
   journal={arXiv preprint arXiv:2411.02109},
   url={https://arxiv.org/abs/2411.02109},
   doi={10.48550/arXiv.2411.02109},
-  year={2024}
+  year={2025}
 }
 ```
