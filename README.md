@@ -11,7 +11,7 @@
   <img src="assets/folding_example.gif" width="800" alt="Example of TTT applied to protein folding">
 </p>
 
-ProteinTTT allows customizing protein language models to one protein at a time for enhanced performance on challenging targets.
+ProteinTTT enables customizing protein language models to one protein at a time for enhanced performance on challenging targets.
 
 ## Installation
 
