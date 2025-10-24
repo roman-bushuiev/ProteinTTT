@@ -680,14 +680,14 @@ class TTTModule(torch.nn.Module, ABC):
         The whole modules rather than parameters are saved to avoid support changing
         modules such as in the case of LoRA.
 
-        TODO: Optimize memory by only saving modules from _ttt_get_trainable_modules()
-
         Returns:
             Dictionary mapping module names to their copied states
         """
         state = {}
+        trainable_modules = set(self._ttt_get_trainable_modules())
         for name, module in self.named_children():
-            state[name] = copy.deepcopy(module)
+            if module in trainable_modules:
+                state[name] = copy.deepcopy(module)
         return state
 
     def _ttt_set_state(self, state: T.Any) -> None:
@@ -1177,4 +1177,3 @@ class TTTModule(torch.nn.Module, ABC):
                 - Optional confidence score
         """
         return {}, {}, None
-    
