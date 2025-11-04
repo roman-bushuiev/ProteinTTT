@@ -601,6 +601,11 @@ class TTTModule(torch.nn.Module, ABC):
         trainable. Otherwise makes parameters trainable in modules from
         _ttt_get_trainable_modules excluding those in _ttt_get_frozen_modules.
 
+        TODO: If one wants to further customize an already customized model without resetting,
+        this currently fails with `ValueError: optimizer got an empty parameter list` when LoRA is
+        enabled. This is not an intended use case, but supporting it in the future could be 
+        interesting.
+
         Returns:
             Iterator of parameters requiring gradients
         """
@@ -690,14 +695,16 @@ class TTTModule(torch.nn.Module, ABC):
         The whole modules rather than parameters are saved to avoid support changing
         modules such as in the case of LoRA.
 
+        TODO: Optimize memory by only saving modules from _ttt_get_trainable_modules()
+
         Returns:
             Dictionary mapping module names to their copied states
         """
         state = {}
-        trainable_modules = set(self._ttt_get_trainable_modules())
+
         for name, module in self.named_children():
-            if module in trainable_modules:
-                state[name] = copy.deepcopy(module)
+            state[name] = copy.deepcopy(module)
+
         return state
 
     def _ttt_set_state(self, state: T.Any) -> None:

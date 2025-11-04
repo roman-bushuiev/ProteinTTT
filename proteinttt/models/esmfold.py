@@ -1,6 +1,8 @@
 import typing as T
+import tempfile
 from pathlib import Path
 
+import biotite.structure.io as bsio
 import torch
 import esm
 from esm.esmfold.v1.esmfold import ESMFold
@@ -69,18 +71,24 @@ class ESMFoldTTT(TTTModule, ESMFold):
         all_log_probs: torch.Tensor,
         seq: str,
         msa_pth: Path,
-        **kwargs,
+        **kwargs
     ) -> tuple[dict, dict, T.Optional[float]]:
+
         # Predict structure
         with torch.no_grad():
-            output = self.infer(seq, masking_pattern=None)
-        
-        pdb_str = output["pdb_str"][0]
-        plddt = output["plddt"][0].mean().item()
+            pdb_str = self.infer_pdb(seq, masking_pattern=None)
+
+        # Calculate pLDDT
+        # TODO Optimize by not saving to disk
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.pdb') as tmp:
+            tmp.write(pdb_str)
+            tmp.flush()
+            struct = bsio.load_structure(tmp.name, extra_fields=["b_factor"])
+            plddt = struct.b_factor.mean()
 
         # Store predictions
-        eval_step_preds = {"pdb": pdb_str}
-        eval_step_metric_dict = {"plddt": plddt}
+        eval_step_preds = {'pdb': pdb_str}
+        eval_step_metric_dict = {'plddt': plddt}
         confidence = plddt
 
         return eval_step_preds, eval_step_metric_dict, confidence
