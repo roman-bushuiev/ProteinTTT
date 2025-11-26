@@ -25,6 +25,10 @@ DEFAULT_SAPROT_650M_TTT_CFG = TTTConfig(
 class SaProtTTT_HF(ESM2TTT_HF, EsmForMaskedLM):
     """
     SaProtTTT_HF is a TTTModule that uses the SaProt model from Hugging Face.
+
+    Note: Currenrtly, customization is done to a sequence (i.e., only learning from sequence data). 
+    Customization to a structure can also be straightforwardly implemented by adjusting
+    _ttt_mask_token below, but this is not implemented yet.
     """
     ttt_default_cfg = DEFAULT_SAPROT_650M_TTT_CFG
 
