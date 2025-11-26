@@ -5,7 +5,6 @@ from esm.model.esm2 import ESM2
 from proteinttt.base import TTTModule, TTTConfig
 
 
-# TODO Update this config for the new loss. These might be to aggressive
 DEFAULT_ESM2_35M_TTT_CFG = TTTConfig(
     lr=4e-4,
     batch_size=4,
