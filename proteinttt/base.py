@@ -96,7 +96,7 @@ class TTTConfig:
     )
 
     @classmethod
-    def from_yaml(cls, yaml_path: str | Path) -> "TTTConfig":
+    def from_yaml(cls, yaml_path: T.Union[str, Path]) -> "TTTConfig":
         """Load TTTConfig from a YAML file using OmegaConf.
 
         Args:
@@ -181,7 +181,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     ttt_default_cfg: T.Optional[TTTConfig] = None
 
-    def __init__(self, ttt_cfg: T.Optional[TTTConfig | Path | str] = None):
+    def __init__(self, ttt_cfg: T.Optional[T.Union[TTTConfig, Path, str]] = None):
         """Initialize TTTModule.
 
         Args:
@@ -261,7 +261,7 @@ class TTTModule(torch.nn.Module, ABC):
         seq: T.Optional[str] = None,
         msa_pth: T.Optional[Path] = None,
         **kwargs,
-    ) -> dict[str, T.Any]:
+    ) -> T.Dict[str, T.Any]:
         """Run test-time training loop to customize model to input protein.
 
         Performs iterative optimization to adapt the model's parameters to better fit
@@ -575,7 +575,7 @@ class TTTModule(torch.nn.Module, ABC):
             "Subclass must implement _ttt_token_to_str method"
         )
 
-    def _ttt_get_trainable_modules(self) -> list[torch.nn.Module]:
+    def _ttt_get_trainable_modules(self) -> T.List[torch.nn.Module]:
         """Get list of modules to train.
 
         Note that some parameters in these modules may still be frozen by
@@ -586,7 +586,7 @@ class TTTModule(torch.nn.Module, ABC):
         """
         return [self]
 
-    def _ttt_get_frozen_modules(self) -> list[torch.nn.Module]:
+    def _ttt_get_frozen_modules(self) -> T.List[torch.nn.Module]:
         """Get list of modules to freeze during training.
 
         Returns:
@@ -720,7 +720,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     def _ttt_sample_batch(
         self, x: torch.Tensor
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> T.Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Sample and mask a batch of sequences for training.
 
         Args:
@@ -990,7 +990,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     def _ttt_score_seq(
         self, x: torch.Tensor, **kwargs
-    ) -> tuple[list[torch.Tensor], float]:
+    ) -> T.Tuple[T.List[torch.Tensor], float]:
         """Score a sequence.
 
         If the sequence is a multiple sequence alignment (MSA), only the first sequence is
@@ -1029,7 +1029,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     def _ttt_score_seq_pseudo_perplexity(
         self, x: torch.Tensor, **kwargs
-    ) -> tuple[list[torch.Tensor], float]:
+    ) -> T.Tuple[T.List[torch.Tensor], float]:
         """Score sequence using pseudo-perplexity.
 
         Calculates pseudo-perplexity by masking each token one at a time and computing
@@ -1104,7 +1104,7 @@ class TTTModule(torch.nn.Module, ABC):
 
     def _ttt_score_seq_gordon2024(
         self, x: torch.Tensor, **kwargs
-    ) -> tuple[list[torch.Tensor], float]:
+    ) -> T.Tuple[T.List[torch.Tensor], float]:
         """Score sequence using method from Gordon et al. 2024.
 
         Implements sequence scoring method from Gordon et al. 2024
@@ -1172,7 +1172,7 @@ class TTTModule(torch.nn.Module, ABC):
         seq: str,
         msa_pth: Path,
         **kwargs,
-    ) -> tuple[dict, dict, T.Optional[float]]:
+    ) -> T.Tuple[dict, dict, T.Optional[float]]:
         """Evaluate model during test-time training (e.g., to select the optimal step).
 
         Base implementation that returns empty dictionaries. Child classes should override
