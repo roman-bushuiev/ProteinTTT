@@ -8,6 +8,7 @@ import esm
 from esm.esmfold.v1.esmfold import ESMFold
 
 from proteinttt.base import TTTModule, TTTConfig
+from proteinttt.utils.structure import lddt_score
 
 
 DEFAULT_ESMFOLD_TTT_CFG = TTTConfig(
@@ -71,8 +72,10 @@ class ESMFoldTTT(TTTModule, ESMFold):
         all_log_probs: torch.Tensor,
         seq: str,
         msa_pth: Path,
+        ref_pdb_pth: Path,
         **kwargs
     ) -> tuple[dict, dict, T.Optional[float]]:
+        eval_step_metric_dict = {}
 
         # Predict structure
         with torch.no_grad():
@@ -86,9 +89,15 @@ class ESMFoldTTT(TTTModule, ESMFold):
             struct = bsio.load_structure(tmp.name, extra_fields=["b_factor"])
             plddt = struct.b_factor.mean()
 
+            # Calculate LDDT if reference PDB is provided
+            # TODO Implement TM-score as well
+            if ref_pdb_pth is not None:
+                lddt = lddt_score(ref_pdb_pth, tmp.name)
+                eval_step_metric_dict['lddt'] = lddt
+
         # Store predictions
         eval_step_preds = {'pdb': pdb_str}
-        eval_step_metric_dict = {'plddt': plddt}
+        eval_step_metric_dict['plddt'] = plddt
         confidence = plddt
 
         return eval_step_preds, eval_step_metric_dict, confidence

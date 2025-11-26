@@ -1,8 +1,12 @@
 import subprocess
-import numpy as np
+import os
 from pathlib import Path
+
+import numpy as np
 import Bio.PDB as bp
 import biotite.structure.io as bsio
+
+from proteinttt.utils.protein import AA3_TO_AA1
 
 
 def calculate_tm_score(
@@ -161,3 +165,71 @@ def calculate_plddt(pdb_file_path):
     struct = bsio.load_structure(pdb_file_path, extra_fields=["b_factor"])
     pLDDT = float(np.asarray(struct.b_factor, dtype=float).mean())
     return pLDDT
+
+
+def get_sequence_from_pdb(pdb_path: str) -> str:
+    """
+    Parse a PDB file and return the amino acid sequence as a one-letter code string.
+    Assumes ATOM records only. Asserts there is exactly one chain in the file.
+
+    Sequence is built from CA atoms in order of appearance.
+
+    Args:
+        pdb_path: Path to PDB file
+
+    Returns:
+        str: Amino acid sequence as a one-letter code string
+
+    Raises:
+        FileNotFoundError: If PDB file not found
+        AssertionError: If more than one chain is found in the PDB file
+        ValueError: If unknown or unsupported residue name is found in the PDB file
+    """
+    if not os.path.isfile(pdb_path):
+        raise FileNotFoundError(f"PDB file not found: {pdb_path}")
+
+    chains = set()
+    residues = []  # (resSeq, iCode, resName)
+    seen_residues = set()  # to avoid duplicates
+
+    with open(pdb_path, "r") as f:
+        for line in f:
+            if not line.startswith("ATOM  "):
+                continue
+
+            chain_id = line[21]
+            chains.add(chain_id)
+
+            res_name = line[17:20].strip()
+            res_seq = line[22:26].strip()
+            i_code = line[26].strip()  # insertion code
+            atom_name = line[12:16].strip()
+
+            # Use only CA atoms to define sequence order
+            if atom_name != "CA":
+                continue
+
+            key = (chain_id, res_seq, i_code)
+            if key in seen_residues:
+                continue
+            seen_residues.add(key)
+            residues.append((res_name, res_seq, i_code))
+
+    # Assert only one chain
+    if len(chains) == 0:
+        raise ValueError(f"No ATOM records found in {pdb_path}")
+    if len(chains) != 1:
+        raise AssertionError(
+            f"Expected exactly one chain, found {len(chains)} in {pdb_path}: {chains}"
+        )
+
+    # Convert to one-letter sequence
+    seq = []
+    for res_name, res_seq, i_code in residues:
+        if res_name not in AA3_TO_AA1:
+            raise ValueError(
+                f"Unknown or unsupported residue name '{res_name}' at {res_seq}{i_code} in {pdb_path}"
+            )
+        seq.append(AA3_TO_AA1[res_name])
+
+    return "".join(seq)
