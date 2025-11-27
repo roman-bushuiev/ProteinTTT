@@ -13,7 +13,6 @@ def calculate_tm_score(
     pred_path,
     pdb_path,
     chain_id=None,
-    use_tmalign=False,
     verbose=False,
     tmscore_path=None,
     tmalign_path=None,
@@ -27,7 +26,6 @@ def calculate_tm_score(
         pred_path: Path to predicted structure PDB file
         pdb_path: Path to reference structure PDB file
         chain_id: Chain ID to use (not implemented)
-        use_tmalign: Whether to use TMalign instead of TMscore executable
         verbose: Whether to print command and output details
         tmscore_path: Path to TMscore executable
         tmalign_path: Path to TMalign executable
@@ -44,17 +42,17 @@ def calculate_tm_score(
             "Chain ID is not implemented for TM-score calculation."
         )
 
-    if tmscore_path is None or tmalign_path is None:
+    num_provided = sum(x is not None for x in (tmscore_path, tmalign_path))
+    if num_provided != 1:
         raise ValueError(
-            "Paths to TMscore and TMalign executables must be provided."
+            "Exactly one of tmscore_path or tmalign_path must be provided."
         )
 
-    # Run TMscore and capture the output
-    command = (
-        [tmalign_path, pdb_path, pred_path]
-        if use_tmalign
-        else [tmscore_path, pred_path, pdb_path]
-    )
+    if tmscore_path is not None:
+        command = [tmscore_path, pred_path, pdb_path]
+    else:
+        command = [tmalign_path, pdb_path, pred_path]
+
     result = subprocess.run(
         command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
     )
