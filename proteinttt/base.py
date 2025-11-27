@@ -540,19 +540,32 @@ class TTTModule(torch.nn.Module, ABC):
         )
 
     @abstractmethod
-    def _ttt_get_non_special_tokens(self) -> torch.Tensor:
+    def _ttt_get_non_special_tokens(self) -> T.List[int]:
         """Get indices of non-special tokens (e.g. 20 standard amino acids).
 
         Returns:
-            Tensor of token indices
+            List of token indices
         """
         raise NotImplementedError(
             "Subclass must implement _ttt_get_non_special_tokens method"
         )
 
-    @abstractmethod
+    def _ttt_get_token_replacement_candidates(self, token: int) -> T.List[int]:
+        """Get candidates for token replacement.
+
+        For some models (e.g. DPLM2), the replacement candidates differ for sequence and
+        structure tokens. So, simply returning all non-special tokens may not be sufficient
+        and a different implementation may be needed.
+
+        Returns:
+            List of token indices
+        """
+        return self._ttt_get_non_special_tokens()
+
     def _ttt_get_padding_token(self) -> int:
         """Get index of padding token.
+
+        This abstrcact method is optional. The error will be raised if the implementation is needed.
 
         Returns:
             Padding token index
@@ -561,9 +574,10 @@ class TTTModule(torch.nn.Module, ABC):
             "Subclass must implement _ttt_get_padding_token method"
         )
 
-    @abstractmethod
     def _ttt_token_to_str(self, token: int) -> str:
         """Convert token index to string representation.
+
+        This abstrcact method is optional. The error will be raised if the implementation is needed.
 
         Args:
             token: Token index
@@ -802,6 +816,7 @@ class TTTModule(torch.nn.Module, ABC):
         batch_masked = batch_cropped.clone()
         for i in range(batch_size):
             for idx in torch.nonzero(mask[i], as_tuple=True)[0]:
+                orig_token = batch_masked[i, idx].item()
                 if (
                     self.ttt_cfg.bert_leave_prob
                     + self.ttt_cfg.bert_replace_prob
@@ -820,10 +835,11 @@ class TTTModule(torch.nn.Module, ABC):
                     elif (
                         prob < 1 - self.ttt_cfg.bert_leave_prob
                     ):  # 10% chance to change to random token
-                        batch_masked[i, idx] = non_special_tokens[
+                        cands = self._ttt_get_token_replacement_candidates(orig_token)
+                        batch_masked[i, idx] = cands[
                             torch.randint(
                                 0,
-                                len(non_special_tokens),
+                                len(cands),
                                 (1,),
                                 generator=self.ttt_generator,
                             ).item()
