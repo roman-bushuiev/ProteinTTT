@@ -8,7 +8,7 @@ import esm
 from esm.esmfold.v1.esmfold import ESMFold
 
 from proteinttt.base import TTTModule, TTTConfig
-from proteinttt.utils.structure import lddt_score
+from proteinttt.utils.structure import lddt_score, calculate_tm_score
 
 
 DEFAULT_ESMFOLD_TTT_CFG = TTTConfig(
@@ -88,11 +88,16 @@ class ESMFoldTTT(TTTModule, ESMFold):
             struct = bsio.load_structure(tmp.name, extra_fields=["b_factor"])
             plddt = struct.b_factor.mean()
 
-            # Calculate LDDT if reference PDB is provided
-            # TODO Implement TM-score as well
+            # Calculate LDDT and TM-score if reference PDB is provided
             if "ref_pdb_pth" in kwargs and kwargs["ref_pdb_pth"] is not None:
                 lddt = lddt_score(kwargs["ref_pdb_pth"], tmp.name)
                 eval_step_metric_dict['lddt'] = lddt
+                if self.ttt_cfg.tmalign_path is not None:
+                    tm_score = calculate_tm_score(
+                        tmp.name, kwargs["ref_pdb_pth"],
+                        tmalign_path=self.ttt_cfg.tmalign_path
+                    )
+                    eval_step_metric_dict['tm_score'] = tm_score
 
         # Store predictions
         eval_step_preds = {'pdb': pdb_str}
