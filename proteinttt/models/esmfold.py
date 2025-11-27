@@ -72,7 +72,6 @@ class ESMFoldTTT(TTTModule, ESMFold):
         all_log_probs: torch.Tensor,
         seq: str,
         msa_pth: Path,
-        ref_pdb_pth: Path,
         **kwargs
     ) -> tuple[dict, dict, T.Optional[float]]:
         eval_step_metric_dict = {}
@@ -91,8 +90,8 @@ class ESMFoldTTT(TTTModule, ESMFold):
 
             # Calculate LDDT if reference PDB is provided
             # TODO Implement TM-score as well
-            if ref_pdb_pth is not None:
-                lddt = lddt_score(ref_pdb_pth, tmp.name)
+            if "ref_pdb_pth" in kwargs and kwargs["ref_pdb_pth"] is not None:
+                lddt = lddt_score(kwargs["ref_pdb_pth"], tmp.name)
                 eval_step_metric_dict['lddt'] = lddt
 
         # Store predictions
