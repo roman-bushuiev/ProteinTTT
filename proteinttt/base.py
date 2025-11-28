@@ -55,6 +55,7 @@ class TTTConfig:
         log_file_path: Path to save log file
         log_name: Name for logger
         logger_level: Logging verbosity level
+        tmalign_path: Path to TMalign executable
     """
 
     lr: float = 4e-4
@@ -95,6 +96,7 @@ class TTTConfig:
     logger_level: str = (
         "INFO"  # T.Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']
     )
+    tmalign_path: T.Optional[Path] = None
 
     @classmethod
     def from_yaml(cls, yaml_path: T.Union[str, Path]) -> "TTTConfig":
@@ -178,6 +180,9 @@ class TTTConfig:
                 raise ValueError(
                     "Scoring for autoregressive models is not implemented yet"
                 )
+
+        if self.tmalign_path is not None and not self.tmalign_path.exists():
+            raise FileNotFoundError(f"TMalign executable not found at {self.tmalign_path}")
 
 
 class TTTModule(torch.nn.Module, ABC):
