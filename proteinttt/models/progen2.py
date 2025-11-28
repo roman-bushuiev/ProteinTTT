@@ -8,14 +8,14 @@ from .progen.progen2.models.progen.modeling_progen import ProGenForCausalLM
 from proteinttt.base import TTTModule, TTTConfig
 
 DEFAULT_PROGEN2_TTT_CFG = TTTConfig(
-    lr=4e-5,
+    lr=4e-4,
     batch_size=1,
     ags=4,
     steps=15,
     model_kind="autoregressive",
     loss_kind="unnormalized_cross_entropy",
-    lora_rank=8,
-    lora_alpha=16.0,
+    lora_rank=0,
+    lora_alpha=0.0,
     lora_target_replace_module="ProGenAttention"
 )
 
